@@ -85,7 +85,7 @@ def extract_recently_played(last_played_at: Optional[int] = None) -> None:
 
     # Extract relevant fields from the JSON response and store them in a DataFrame
     df = extract_tracks_from_json(resp)
-    if df is not None:
+    if df.shape[0] > 0:
         df = df.sort_values(by="played_at")
         # Save the DataFrame to a CSV file
         df.to_csv("dags/data/spotify.csv", index=False)
