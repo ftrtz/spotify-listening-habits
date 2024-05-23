@@ -3,12 +3,9 @@ import pandas as pd
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from airflow.models import Variable
-from datetime import timezone, datetime
+from datetime import datetime
 from typing import Optional, List, Dict, Any
-
-
-# TODO: Logging i.e. when no new tracks were fetched, etc.
-
+import logging
 
 def extract_tracks_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     """
@@ -57,11 +54,10 @@ def convert_time(last_played_at: datetime) -> int:
     Returns:
         int: Unix timestamp in milliseconds.
     """
-    # Ensure the datetime object is timezone-aware (UTC)
-    last_played_at = last_played_at.replace(tzinfo=timezone.utc)
-
     # Convert the datetime object to a Unix timestamp
     unix_timestamp = int(last_played_at.timestamp() * 1000)
+
+    logging.info(f"Last played track was at {last_played_at} - Unix Timestamp: {unix_timestamp}")
     return unix_timestamp
 
 
@@ -89,6 +85,12 @@ def extract_recently_played(last_played_at: Optional[int] = None) -> None:
 
     # Extract relevant fields from the JSON response and store them in a DataFrame
     df = extract_tracks_from_json(resp)
+    if df is not None:
+        df = df.sort_values(by="played_at")
+        # Save the DataFrame to a CSV file
+        df.to_csv("dags/data/spotify.csv", index=False)
+        logging.info(f"Retrieved {df.shape[0]} recently played tracks from Spotify.")
+    else:
+        logging.info(f"Retrieved no new data from Spotify.")
 
-    # Save the DataFrame to a CSV file
-    df.to_csv("dags/data/spotify.csv", index=False)
+    
