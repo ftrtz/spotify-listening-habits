@@ -76,17 +76,20 @@ def etl():
                 )
                 connection.commit()
         else:
-            logging.info("No data to push - csv can't be found.")
+            logging.info("No data to push - CSV file can't be found.")
 
-    @task
+    @task()
     def cleanup():
-        # Delete csv file
+        """
+        Cleans up the temporary CSV file after loading the data into the database.
+        """
         csv_path = "dags/data/spotify.csv"
-        os.remove(csv_path)
-    
-
+        if os.path.exists(csv_path):
+            os.remove(csv_path)
+            logging.info("CSV file removed.")
+        else:
+            logging.info("CSV file does not exist. No need to remove.")
         
-
     # Set task dependencies
     create_db_table >> extract() >> load() >> cleanup()
 
