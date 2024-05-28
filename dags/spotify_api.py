@@ -6,6 +6,16 @@ from airflow.models import Variable
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import logging
+import os
+from airflow.hooks.postgres_hook import PostgresHook
+
+
+
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 def extract_tracks_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     """
@@ -42,6 +52,32 @@ def extract_tracks_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
         track_list.append(track_element)
 
     return pd.DataFrame(track_list)
+
+def extract_artists_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
+    
+    artists = []
+
+    for item in resp["artists"]:
+        spotify_id = item["id"]
+        name = item["name"]
+        followers = item["followers"]
+        genres = item["genres"]
+        popularity = item["popularity"]
+        uri = item["uri"]
+
+        artist_element = {
+            "spotify_id": spotify_id,
+            "name": name,
+            "followers": followers,
+            "genres": genres,
+            "genres": genres,
+            "popularity": popularity,
+            "uri": uri
+        }
+
+        artists.append(artist_element)
+
+    return pd.DataFrame(artists)
 
 
 def convert_time(last_played_at: datetime) -> int:
@@ -88,9 +124,65 @@ def extract_recently_played(last_played_at: Optional[int] = None) -> None:
     if df.shape[0] > 0:
         df = df.sort_values(by="played_at")
         # Save the DataFrame to a CSV file
-        df.to_csv("dags/data/spotify.csv", index=False)
+        df.to_csv("dags/data/played.csv", index=False)
         logging.info(f"Retrieved {df.shape[0]} recently played tracks from Spotify.")
     else:
-        logging.info(f"Retrieved no new data from Spotify.")
+        logging.info(f"Retrieved no new played data from Spotify.")
 
     
+def extract_artists(artist_ids):
+
+    # Prepare the Spotify API client
+    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+        client_id=Variable.get("SPOTIPY_CLIENT_ID"),
+        client_secret=Variable.get("SPOTIPY_CLIENT_SECRET"),
+        redirect_uri=Variable.get("SPOTIPY_REDIRECT_URI"),
+        cache_path="dags/.cache"
+    ))
+
+    if len(artist_ids) > 50:
+        df_list = []
+        for id_chunk in chunks(artist_ids, 50):
+            # Send the request for artist
+            resp = sp.artists(id_chunk)
+            # Extract relevant fields from the JSON response and store them in a DataFrame
+            temp_df = extract_artists_from_json(resp)
+            df_list.append(temp_df)
+        df = pd.concat(df_list)
+    elif 50 >= len(artist_ids) > 0:
+        resp = sp.artists(artist_ids)
+        df = extract_artists_from_json(resp)
+    else:
+        df = pd.DataFrame()
+    
+    if df.shape[0] > 0:
+        # Save the DataFrame to a CSV file
+        df.to_csv("dags/data/artist.csv", index=False)
+        logging.info(f"Retrieved {df.shape[0]} artists from Spotify.")
+    else:
+        logging.info(f"Retrieved no new artist data from Spotify.")
+
+
+def csv_to_postgresql(table_name, csv_path):
+    """
+    Loads the extracted Spotify data into the specified table in PostgreSQL.
+    """
+
+    if os.path.exists(csv_path):
+
+        df = pd.read_csv(csv_path)
+        cols = ", ".join(df.columns)
+        # connect to db
+        postgres_hook = PostgresHook(postgres_conn_id="spotify_postgres")
+        # Load data into the 'artist' table using the COPY command
+        with postgres_hook.get_conn() as connection:
+            postgres_hook.copy_expert(
+                f"""
+                COPY {table_name} ({cols})
+                FROM stdin WITH CSV HEADER DELIMITER as ','
+                """,
+                f"{csv_path}",
+            )
+            connection.commit()
+    else:
+        logging.info(f"{csv_path} can't be found.")
