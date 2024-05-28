@@ -26,8 +26,8 @@ default_args = {
 def etl():
     """
     ETL pipeline for Spotify data using Airflow.
-    Extracts recently played songs, transforms the data,
-    and loads it into a PostgreSQL database.
+    This pipeline extracts recently played songs and artist information from the Spotify API,
+    transforms the data, and loads it into a PostgreSQL database.
     """
 
     # Task to create the 'played' table if it doesn't exist
@@ -44,53 +44,66 @@ def etl():
         It fetches the timestamp of the last played song from the 'played' table
         and uses it to extract new records from the Spotify API.
         """
+        # Initialize PostgresHook to interact with the PostgreSQL database
         postgres_hook = PostgresHook(postgres_conn_id='spotify_postgres')
+        
         # Execute the query to get the most recent 'played_at' timestamp
         result = postgres_hook.get_first('SELECT MAX(played_at) FROM played')[0]
+        
+        # Convert the timestamp if available, else set to None
         if result:
             last_played_at = convert_time(result)
         else:
             last_played_at = None
-            logging.info("No last played timestamp. Use default settings.")
+            logging.info("No last played timestamp found. Using default settings.")
 
-        # Extract recently played songs after the last played timestamp
+        # Extract recently played songs from the Spotify API after the last played timestamp
         extract_recently_played(last_played_at)
 
     @task()
     def extract_artist():
         """
-        Extracts the artists for all recently played songs from the Spotify API.
+        Extracts artist information for all recently played songs from the Spotify API.
+        It reads the artist IDs from the 'played' CSV file and fetches details for those artists.
         """
-        # get artist_ids from the played csv
-        played_df = pd.read_csv("dags/data/played.csv", converters={'artists_spotify_id': ast.literal_eval})
-        artist_ids = played_df["artists_spotify_id"].explode().to_list()
-        artist_ids = list(set(artist_ids))
+        # Path to the played songs CSV file
+        csv_path = "dags/data/played.csv"
+        
+        if os.path.exists(csv_path):
+            # Read the CSV file into a DataFrame
+            played_df = pd.read_csv(csv_path, converters={'artists_spotify_id': ast.literal_eval})
+            # Get a list of unique artist IDs
+            artist_ids = played_df["artists_spotify_id"].explode().to_list()
+            artist_ids = list(set(artist_ids))
 
-        # check if they are already in the db to avoid unnecessary requests to the spotify api
-        #postgres_hook = PostgresHook(postgres_conn_id='spotify_postgres')
-        #sql = f""
-        #conn = postgres_hook.get_conn()
-        #cursor = conn.cursor()
-        #cursor.execute(sql)
+            # TODO: Check if the artists are already in the database to avoid unnecessary API requests
 
-        if len(artist_ids) > 0:
-            # extract the artist information
-            extract_artists(artist_ids)
+            if artist_ids:
+                # Extract artist information from the Spotify API
+                extract_artists(artist_ids)
+            else:
+                logging.info("No artists to extract.")
         else:
-            logging.info("No artists to extract")
+            logging.info("No 'played' CSV file found. No artists to extract.")
     
     @task()
     def load_played():
+        """
+        Loads the recently played songs data from the CSV file into the PostgreSQL 'played' table.
+        """
         csv_to_postgresql("played", "dags/data/played.csv")
 
     @task()
     def load_artist():
+        """
+        Loads the artist information data from the CSV file into the PostgreSQL 'artist' table.
+        """
         csv_to_postgresql("artist", "dags/data/artist.csv")
 
     @task()
     def cleanup():
         """
-        Cleans up the temporary CSV file after loading the data into the database.
+        Cleans up the temporary CSV files after loading the data into the PostgreSQL database.
         """
         csv_paths = ["dags/data/played.csv", "dags/data/artist.csv"]
 
@@ -101,8 +114,8 @@ def etl():
             else:
                 logging.info(f"{csv_path} does not exist. No need to remove.")
         
-    # Set task dependencies
+    # Define task dependencies to set the order of execution
     create_db_tables >> extract_played() >> load_played() >> extract_artist() >> load_artist() >> cleanup()
 
-# Run the DAG
+# Instantiate the DAG
 dag_run = etl()
