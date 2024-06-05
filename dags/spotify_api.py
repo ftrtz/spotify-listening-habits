@@ -1,12 +1,11 @@
 import pandas as pd
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from airflow.models import Variable
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import logging
 import os
-from airflow.hooks.postgres_hook import PostgresHook
+import json
 
 def chunks(lst: List[Any], n: int) -> List[Any]:
     """
@@ -22,9 +21,9 @@ def chunks(lst: List[Any], n: int) -> List[Any]:
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-def extract_tracks_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
+def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     """
-    Extracts relevant track information from the Spotify API JSON response and 
+    Extracts recently played tracks information from the Spotify API JSON response and 
     saves it into a pandas DataFrame.
 
     Args:
@@ -33,30 +32,38 @@ def extract_tracks_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame containing track information.
     """
-    track_list = []
+    tracks = []
 
     for item in resp["items"]:
-        track_spotify_id = item["track"]["id"]
-        track_name = item["track"]["name"]
-        artists_spotify_id = list(map(lambda a: a["id"], item["track"]["artists"]))
-        artists_name = list(map(lambda a: a["name"], item["track"]["artists"]))
-        album_spotify_id = item["track"]["album"]["id"]
-        album_name = item["track"]["album"]["name"]
         played_at = item["played_at"]
+        track_id = item["track"]["id"]
+        track_name = item["track"]["name"]
+        artist_ids = list(map(lambda a: a["id"], item["track"]["artists"]))
+        artist_names = list(map(lambda a: a["name"], item["track"]["artists"]))
+        album_id = item["track"]["album"]["id"]
+        album_name = item["track"]["album"]["name"]
+        album_images = json.dumps(item["track"]["album"]["images"])
+        track_uri = item["track"]["uri"]
+
+        # parse time and convert to unix timestamp
+        unix_timestamp = int(datetime.strptime(played_at, "%Y-%m-%dT%H:%M:%S.%fZ").timestamp() * 1000)
 
         track_element = {
-            "track_spotify_id": track_spotify_id,
+            "unix_timestamp": unix_timestamp,
+            "played_at": played_at,
+            "track_id": track_id,
             "track_name": track_name,
-            "artists_spotify_id": artists_spotify_id,
-            "artists_name": artists_name,
-            "album_spotify_id": album_spotify_id,
+            "artist_ids": artist_ids,
+            "artist_names": artist_names,
+            "album_id": album_id,
             "album_name": album_name,
-            "played_at": played_at
+            "album_images": album_images,
+            "track_uri": track_uri
         }
 
-        track_list.append(track_element)
+        tracks.append(track_element)
 
-    return pd.DataFrame(track_list)
+    return pd.DataFrame(tracks)
 
 def extract_artists_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     """
@@ -72,90 +79,87 @@ def extract_artists_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     artists = []
 
     for item in resp["artists"]:
-        spotify_id = item["id"]
+        id = item["id"]
         name = item["name"]
         followers = item["followers"]["total"]
-        genres = item["genres"]
+        genres = "{" + ",".join(f'"{genre}"' for genre in item["genres"]) + "}"
         popularity = item["popularity"]
         uri = item["uri"]
+        images = json.dumps(item["images"])
 
         artist_element = {
-            "spotify_id": spotify_id,
+            "id": id,
             "name": name,
             "followers": followers,
             "genres": genres,
             "popularity": popularity,
-            "uri": uri
+            "uri": uri,
+            "images": images
         }
 
         artists.append(artist_element)
 
     return pd.DataFrame(artists)
 
-def convert_time(last_played_at: datetime) -> int:
-    """
-    Converts a timezone-aware datetime object to a Unix timestamp in milliseconds.
-
-    Args:
-        last_played_at (datetime): Datetime object of the last played track.
-
-    Returns:
-        int: Unix timestamp in milliseconds.
-    """
-    # Convert the datetime object to a Unix timestamp in milliseconds
-    unix_timestamp = int(last_played_at.timestamp() * 1000)
-
-    logging.info(f"Last played track was at {last_played_at} - Unix Timestamp: {unix_timestamp}")
-    return unix_timestamp
-
-def extract_recently_played(last_played_at: Optional[int] = None) -> None:
+def extract_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFrame:
     """
     Extracts recently played tracks from the Spotify API since the given timestamp,
     converts the data to a DataFrame, and saves it as a CSV file.
 
     Args:
+        sp (spotipy.Spotify): The Spotify API client.
         last_played_at (Optional[int]): Unix timestamp in milliseconds of the last played track. 
                                         If None, fetches the most recent tracks.
+    
+    Returns:
+        pd.DataFrame: DataFrame containing recently played track information.
     """
-    # Prepare the Spotify API client with the required scope
-    scope = "user-read-recently-played"
-    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-        client_id=Variable.get("SPOTIPY_CLIENT_ID"),
-        client_secret=Variable.get("SPOTIPY_CLIENT_SECRET"),
-        redirect_uri=Variable.get("SPOTIPY_REDIRECT_URI"),
-        scope=scope,
-        cache_path="dags/.cache"
-    ))
-
     # Send the request for recently played tracks
     resp = sp.current_user_recently_played(limit=50, after=last_played_at)
 
     # Extract relevant fields from the JSON response and store them in a DataFrame
-    df = extract_tracks_from_json(resp)
-    if df.shape[0] > 0:
-        df = df.sort_values(by="played_at")
-        # Save the DataFrame to a CSV file
-        df.to_csv("dags/data/played.csv", index=False)
-        logging.info(f"Retrieved {df.shape[0]} recently played tracks from Spotify.")
-    else:
-        logging.info(f"Retrieved no new played data from Spotify.")
+    df = extract_played_from_json(resp)
+    return df
 
-def extract_artists(artist_ids: List[str]) -> None:
+def transform_played(played: pd.DataFrame) -> None:
+    """
+    Transforms the recently played DataFrame by sorting, exploding, and saving it into CSV files.
+
+    Args:
+        played (pd.DataFrame): DataFrame containing recently played track information.
+    """
+    played = played.sort_values(by="played_at")
+
+    # Explode to create track_artist DataFrame
+    track_artist = played[["track_id", "artist_ids"]].explode("artist_ids")
+    track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
+    track_artist = track_artist.drop_duplicates()
+
+    # Create track DataFrame
+    track = played[["track_id", "track_name", "album_id", "album_name", "album_images", "track_uri"]]
+    track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
+    track = track.drop_duplicates(subset=["id"])
+
+    # Filter final played columns
+    played = played[["unix_timestamp", "played_at", "track_id"]]
+
+    # Save the DataFrames to CSV files
+    track_artist.to_csv("dags/data/track_artist.csv", index=False)
+    track.to_csv("dags/data/track.csv", index=False)
+    played.to_csv("dags/data/played.csv", index=False)
+
+def extract_artists(sp, artist_ids: List[str]) -> pd.DataFrame:
     """
     Extracts artist information from the Spotify API for the given list of artist IDs,
     converts the data to a DataFrame, and saves it as a CSV file.
 
     Args:
+        sp (spotipy.Spotify): The Spotify API client.
         artist_ids (List[str]): List of artist IDs to fetch information for.
-    """
-    # Prepare the Spotify API client
-    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-        client_id=Variable.get("SPOTIPY_CLIENT_ID"),
-        client_secret=Variable.get("SPOTIPY_CLIENT_SECRET"),
-        redirect_uri=Variable.get("SPOTIPY_REDIRECT_URI"),
-        cache_path="dags/.cache"
-    ))
 
+    Returns:
+        pd.DataFrame: DataFrame containing artist information.
+    """
     if len(artist_ids) > 50:
         df_list = []
         for id_chunk in chunks(artist_ids, 50):
@@ -177,12 +181,15 @@ def extract_artists(artist_ids: List[str]) -> None:
         logging.info(f"Retrieved {df.shape[0]} artists from Spotify.")
     else:
         logging.info(f"Retrieved no new artist data from Spotify.")
+    
+    return df
 
-def csv_to_postgresql(table_name: str, csv_path: str) -> None:
+def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
     """
     Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
 
     Args:
+        hook (PostgresHook): The PostgresHook to interact with PostgreSQL.
         table_name (str): The name of the PostgreSQL table to load data into.
         csv_path (str): The path to the CSV file containing the data.
     """
@@ -190,11 +197,8 @@ def csv_to_postgresql(table_name: str, csv_path: str) -> None:
         # Read the CSV file into a DataFrame
         df = pd.read_csv(csv_path)
         cols = ", ".join(df.columns)
-        
-        # Connect to the PostgreSQL database
-        postgres_hook = PostgresHook(postgres_conn_id="spotify_postgres")
 
-        with postgres_hook.get_conn() as conn:
+        with hook.get_conn() as conn:
             with conn.cursor() as cursor:
                 # Create a temporary table to hold the data
                 cursor.execute(f"""
@@ -213,8 +217,8 @@ def csv_to_postgresql(table_name: str, csv_path: str) -> None:
                     """, f)
                     
                 # Insert data from the temporary table into the final table
-                if table_name == "artist":
-                    # We only want unique entries in this table, so we ignore entries that do no match the schema
+                if table_name in ["artist", "track", "track_artist"]:
+                    # We only want unique entries in these tables, so we ignore entries that do not match the schema
                     cursor.execute(f"""
                         INSERT INTO {table_name} ({cols})
                         SELECT * FROM tmp_{table_name}

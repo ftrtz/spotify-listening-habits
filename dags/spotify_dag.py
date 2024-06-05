@@ -1,12 +1,14 @@
 from airflow.decorators import dag, task
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from airflow.hooks.postgres_hook import PostgresHook
+from airflow.models import Variable
 from datetime import datetime, timedelta
-from spotify_api import extract_recently_played, convert_time, extract_artists, csv_to_postgresql
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+from spotify_api import extract_recently_played, transform_played, extract_artists, csv_to_postgresql
 import os
 import logging
 import pandas as pd
-import ast
 
 # Define the default arguments for the DAG
 default_args = {
@@ -48,17 +50,34 @@ def etl():
         postgres_hook = PostgresHook(postgres_conn_id='spotify_postgres')
         
         # Execute the query to get the most recent 'played_at' timestamp
-        result = postgres_hook.get_first('SELECT MAX(played_at) FROM played')[0]
+        unix_timestamp = postgres_hook.get_first('SELECT MAX(unix_timestamp) FROM played')[0]
         
         # Convert the timestamp if available, else set to None
-        if result:
-            last_played_at = convert_time(result)
+        if unix_timestamp:
+            played_at = postgres_hook.get_first('SELECT MAX(played_at) FROM played')[0]
+            logging.info(f"Last played track was at {played_at} - Unix Timestamp: {unix_timestamp}")
         else:
-            last_played_at = None
+            unix_timestamp = None
             logging.info("No last played timestamp found. Using default settings.")
 
+        # Prepare the Spotify API client with the required scope
+        scope = "user-read-recently-played"
+        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+            client_id=Variable.get("SPOTIPY_CLIENT_ID"),
+            client_secret=Variable.get("SPOTIPY_CLIENT_SECRET"),
+            redirect_uri=Variable.get("SPOTIPY_REDIRECT_URI"),
+            scope=scope,
+            cache_path="dags/.cache"
+        ))
+
         # Extract recently played songs from the Spotify API after the last played timestamp
-        extract_recently_played(last_played_at)
+        played = extract_recently_played(sp, unix_timestamp)
+        
+        if played.shape[0] > 0:
+            logging.info(f"Retrieved {played.shape[0]} recently played tracks from Spotify.")
+            transform_played(played)
+        else:
+            logging.info(f"Retrieved no new played data from Spotify.")
 
     @task()
     def extract_artist():
@@ -70,52 +89,53 @@ def etl():
         csv_path = "dags/data/played.csv"
         
         if os.path.exists(csv_path):
-            # Read the CSV file into a DataFrame
-            played_df = pd.read_csv(csv_path, converters={'artists_spotify_id': ast.literal_eval})
             # Get a list of unique artist IDs
-            artist_ids = played_df["artists_spotify_id"].explode().to_list()
-            artist_ids = list(set(artist_ids))
+            track_artist = pd.read_csv("dags/data/track_artist.csv")
+            artist_ids = list(track_artist["artist_id"].unique())
 
             # TODO: Check if the artists are already in the database to avoid unnecessary API requests
 
             if artist_ids:
+                # Prepare the Spotify API client with the required scope
+                sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+                    client_id=Variable.get("SPOTIPY_CLIENT_ID"),
+                    client_secret=Variable.get("SPOTIPY_CLIENT_SECRET"),
+                    redirect_uri=Variable.get("SPOTIPY_REDIRECT_URI"),
+                    cache_path="dags/.cache"
+                ))
                 # Extract artist information from the Spotify API
-                extract_artists(artist_ids)
+                extract_artists(sp, artist_ids)
             else:
                 logging.info("No artists to extract.")
         else:
             logging.info("No 'played' CSV file found. No artists to extract.")
     
-    @task()
-    def load_played():
+    @task(retries=0)
+    def load_tables():
         """
-        Loads the recently played songs data from the CSV file into the PostgreSQL 'played' table.
+        Loads all csv tables data from the CSV files into the corresponding PostgreSQL tables.
         """
-        csv_to_postgresql("played", "dags/data/played.csv")
-
-    @task()
-    def load_artist():
-        """
-        Loads the artist information data from the CSV file into the PostgreSQL 'artist' table.
-        """
-        csv_to_postgresql("artist", "dags/data/artist.csv")
+        # Connect to the PostgreSQL database
+        postgres_hook = PostgresHook(postgres_conn_id="spotify_postgres")
+        tbl_names = ["track", "played", "artist", "track_artist"]
+        for tbl_name in tbl_names:
+            csv_to_postgresql(postgres_hook, tbl_name, f"dags/data/{tbl_name}.csv")
+            logging.info(f"Pushed {tbl_name} data to database")
 
     @task()
     def cleanup():
         """
         Cleans up the temporary CSV files after loading the data into the PostgreSQL database.
         """
-        csv_paths = ["dags/data/played.csv", "dags/data/artist.csv"]
+        filenames = os.listdir("dags/data/")
 
-        for csv_path in csv_paths:
-            if os.path.exists(csv_path):
-                os.remove(csv_path)
-                logging.info(f"Removed {csv_path}")
-            else:
-                logging.info(f"{csv_path} does not exist. No need to remove.")
+        for f in filenames:
+            f_path = os.path.join("dags/data/", f)
+            os.remove(f_path)
+            logging.info(f"Removed {f_path}")
         
     # Define task dependencies to set the order of execution
-    create_db_tables >> extract_played() >> load_played() >> extract_artist() >> load_artist() >> cleanup()
+    create_db_tables >> extract_played() >> extract_artist() >> load_tables() >> cleanup()
 
 # Instantiate the DAG
 dag_run = etl()
