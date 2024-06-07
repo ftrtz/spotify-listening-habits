@@ -38,6 +38,7 @@ def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
         played_at = item["played_at"]
         track_id = item["track"]["id"]
         track_name = item["track"]["name"]
+        popularity = item["track"]["popularity"]
         artist_ids = list(map(lambda a: a["id"], item["track"]["artists"]))
         artist_names = list(map(lambda a: a["name"], item["track"]["artists"]))
         album_id = item["track"]["album"]["id"]
@@ -53,6 +54,7 @@ def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
             "played_at": played_at,
             "track_id": track_id,
             "track_name": track_name,
+            "popularity": popularity,
             "artist_ids": artist_ids,
             "artist_names": artist_names,
             "album_id": album_id,
@@ -136,7 +138,7 @@ def transform_played(played: pd.DataFrame) -> None:
     track_artist = track_artist.drop_duplicates()
 
     # Create track DataFrame
-    track = played[["track_id", "track_name", "album_id", "album_name", "album_images", "track_uri"]]
+    track = played[["track_id", "track_name", "popularity", "album_id", "album_name", "album_images", "track_uri"]]
     track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
     track = track.drop_duplicates(subset=["id"])
 

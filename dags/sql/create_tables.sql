@@ -3,6 +3,7 @@
 CREATE TABLE IF NOT EXISTS track (
     id VARCHAR PRIMARY KEY,
     name VARCHAR NOT NULL,
+    popularity INTEGER NOT NULL,
     album_id VARCHAR NOT NULL,
     album_name VARCHAR NOT NULL,
     album_images JSONB,
