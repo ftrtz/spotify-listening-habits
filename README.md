@@ -3,9 +3,10 @@
 
 ## Airflow DAG & Database Schema
 #### Airflow DAG
-![image](doc\dag.png)
+![dag](https://github.com/ftrtz/spotify-listening-habits/assets/63648399/f45a8952-8c9a-42ee-85b2-0bbf0a992777)
+
 #### ER Diagram of the final Database
-![image](doc\er_diagram.png)
+![er_diagram](https://github.com/ftrtz/spotify-listening-habits/assets/63648399/cf80122e-7575-4dce-b024-e76d78ceb9ce)
 
 ## Prerequisites 
 - Spotify Account
