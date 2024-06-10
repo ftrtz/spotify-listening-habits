@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS track (
     id VARCHAR PRIMARY KEY,
     name VARCHAR NOT NULL,
     popularity INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
     album_id VARCHAR NOT NULL,
     album_name VARCHAR NOT NULL,
     album_images JSONB,
@@ -25,7 +26,8 @@ CREATE TABLE IF NOT EXISTS artist (
 CREATE TABLE IF NOT EXISTS track_artist (
     PRIMARY KEY(track_id, artist_id),
     track_id VARCHAR NOT NULL REFERENCES track(id),
-    artist_id VARCHAR NOT NULL REFERENCES artist(id)
+    artist_id VARCHAR NOT NULL REFERENCES artist(id),
+    artist_position INTEGER NOT NULL
 );
 
 -- create played table

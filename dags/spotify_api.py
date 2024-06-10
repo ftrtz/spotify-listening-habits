@@ -21,6 +21,19 @@ def chunks(lst: List[Any], n: int) -> List[Any]:
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
+def parse_datetime(datetime_string):
+    formats = [
+        "%Y-%m-%dT%H:%M:%S.%fZ",  # Format with milliseconds
+        "%Y-%m-%dT%H:%M:%S%z"      # Format without milliseconds
+    ]
+    
+    for fmt in formats:
+        try:
+            return datetime.strptime(datetime_string, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"time data '{datetime_string}' does not match any of the formats")
+
 def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     """
     Extracts recently played tracks information from the Spotify API JSON response and 
@@ -39,6 +52,7 @@ def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
         track_id = item["track"]["id"]
         track_name = item["track"]["name"]
         popularity = item["track"]["popularity"]
+        duration_ms = item["track"]["duration_ms"]
         artist_ids = list(map(lambda a: a["id"], item["track"]["artists"]))
         artist_names = list(map(lambda a: a["name"], item["track"]["artists"]))
         album_id = item["track"]["album"]["id"]
@@ -47,7 +61,7 @@ def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
         track_uri = item["track"]["uri"]
 
         # parse time and convert to unix timestamp
-        unix_timestamp = int(datetime.strptime(played_at, "%Y-%m-%dT%H:%M:%S.%fZ").timestamp() * 1000)
+        unix_timestamp = int(parse_datetime(played_at).timestamp() * 1000)
 
         track_element = {
             "unix_timestamp": unix_timestamp,
@@ -55,6 +69,7 @@ def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
             "track_id": track_id,
             "track_name": track_name,
             "popularity": popularity,
+            "duration_ms": duration_ms,
             "artist_ids": artist_ids,
             "artist_names": artist_names,
             "album_id": album_id,
@@ -133,12 +148,16 @@ def transform_played(played: pd.DataFrame) -> None:
     played = played.sort_values(by="played_at")
 
     # Explode to create track_artist DataFrame
-    track_artist = played[["track_id", "artist_ids"]].explode("artist_ids")
+    track_artist = played[["track_id", "artist_ids"]]
+    track_artist = track_artist.assign(
+        artist_position=track_artist['artist_ids'].apply(lambda x: list(range(len(x))))
+        )
+    track_artist = track_artist.explode(["artist_ids", "artist_position"])
     track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
     track_artist = track_artist.drop_duplicates()
 
     # Create track DataFrame
-    track = played[["track_id", "track_name", "popularity", "album_id", "album_name", "album_images", "track_uri"]]
+    track = played[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
     track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
     track = track.drop_duplicates(subset=["id"])
 
