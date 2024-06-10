@@ -96,13 +96,31 @@ services:
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     volumes:
-      - postgres-db-volume:/var/lib/postgresql/data
+      - /mnt/user/airflow/pg_database:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
       retries: 5
       start_period: 5s
     restart: always
+
+# Uncomment to deploy a postgres db for spotify data if you don't have your own set up already
+#  spotify-postgres:
+#    image: postgres:13
+#    ports:
+#      - 6543:5432 # müssen die anders sein als die von der anderen db
+#    environment:
+#      POSTGRES_USER: ${POSTGRES_USER}
+#      POSTGRES_PASSWORD: ${POSTGRES_SECRET}
+#      POSTGRES_DB: ${DB_NAME}
+#    volumes:
+#      - postgres-db-volume:/var/lib/spotifypostgres/data
+#    healthcheck:
+#      test: ["CMD", "pg_isready", "-U", ${DB_NAME}]
+#      interval: 10s
+#      retries: 5
+#      start_period: 5s
+#    restart: always
 
   redis:
     # Redis is limited to 7.2-bookworm due to licencing change
@@ -286,6 +304,19 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+
+# Comment out if you don't want to run the streamlit dashboard
+#  spotify-dashboard:
+#    build: /app
+#    ports:
+#      - 8501:8501
+#    environment:
+#      - POSTGRES_USER=${POSTGRES_USER}
+#      - POSTGRES_SECRET=${POSTGRES_SECRET}
+#      - DB_HOST=${DB_HOST}
+#      - DB_PORT=${DB_PORT}
+#      - DB_NAME=${DB_NAME}
+#    restart: always
 
 volumes:
   postgres-db-volume:
