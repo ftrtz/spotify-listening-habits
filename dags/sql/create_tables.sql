@@ -11,6 +11,24 @@ CREATE TABLE IF NOT EXISTS track (
     uri VARCHAR NOT NULL
     );
 
+-- create audio_features table
+CREATE TABLE IF NOT EXISTS audio_features (
+    track_id VARCHAR PRIMARY KEY REFERENCES track(id),
+    danceability FLOAT,
+    energy FLOAT,
+    key INTEGER,
+    loudness FLOAT,
+    mode INTEGER,
+    speechiness FLOAT,
+    acousticness FLOAT,
+    instrumentalness FLOAT,
+    liveness FLOAT,
+    valence FLOAT,
+    tempo FLOAT,
+    time_signature INTEGER,
+    analysis_url VARCHAR
+    );
+
 -- create artist table
 CREATE TABLE IF NOT EXISTS artist (
     id VARCHAR NOT NULL PRIMARY KEY,

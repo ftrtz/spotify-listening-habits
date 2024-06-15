@@ -82,6 +82,57 @@ def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
 
     return pd.DataFrame(tracks)
 
+def extract_audio_features_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Extracts audio features information from the Spotify API JSON response and 
+    saves it into a pandas DataFrame.
+
+    Args:
+        resp (Dict[str, Any]): JSON response from Spotify API containing tracks audio features.
+
+    Returns:
+        pd.DataFrame: DataFrame containing audio features information.
+    """
+    audio_features = []
+
+    for item in resp:
+        track_id = item["id"]
+        danceability = item["danceability"]
+        energy = item["energy"]
+        key = item["key"]
+        loudness = item["loudness"]
+        mode = item["mode"]
+        speechiness = item["speechiness"]
+        acousticness = item["acousticness"]
+        instrumentalness = item["instrumentalness"]
+        liveness = item["liveness"]
+        valence = item["valence"]
+        tempo = item["tempo"]
+        time_signature = item["time_signature"]
+        analysis_url = item["analysis_url"]
+
+
+        audio_features_element = {
+            "track_id": track_id,
+            "danceability": danceability,
+            "energy": energy,
+            "key": key,
+            "loudness": loudness,
+            "mode": mode,
+            "speechiness": speechiness,
+            "acousticness": acousticness,
+            "instrumentalness": instrumentalness,
+            "liveness": liveness,
+            "valence": valence,
+            "tempo": tempo,
+            "time_signature": time_signature,
+            "analysis_url": analysis_url
+        }
+
+        audio_features.append(audio_features_element)
+
+    return pd.DataFrame(audio_features)
+
 def extract_artists_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     """
     Extracts relevant artist information from the Spotify API JSON response and 
@@ -118,7 +169,7 @@ def extract_artists_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
 
     return pd.DataFrame(artists)
 
-def extract_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFrame:
+def get_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFrame:
     """
     Extracts recently played tracks from the Spotify API since the given timestamp,
     converts the data to a DataFrame, and saves it as a CSV file.
@@ -138,38 +189,41 @@ def extract_recently_played(sp, last_played_at: Optional[int] = None) -> pd.Data
     df = extract_played_from_json(resp)
     return df
 
-def transform_played(played: pd.DataFrame) -> None:
+def get_audio_features(sp, track_ids: List[str]) -> pd.DataFrame:
     """
-    Transforms the recently played DataFrame by sorting, exploding, and saving it into CSV files.
+    Extracts tracks audio features from the Spotify API,
+    converts the data to a DataFrame, and saves it as a CSV file.
 
     Args:
-        played (pd.DataFrame): DataFrame containing recently played track information.
+        sp (spotipy.Spotify): The Spotify API client.
+        track_ids (List[str]): List of track IDs to fetch information for.
+    
+    Returns:
+        pd.DataFrame: DataFrame containing recently played track information.
     """
-    played = played.sort_values(by="played_at")
+    logging.info(f"calling spotify api for {track_ids}")
+    # Send the request for recently played tracks
+    resp = sp.audio_features(tracks=track_ids)
 
-    # Explode to create track_artist DataFrame
-    track_artist = played[["track_id", "artist_ids"]]
-    track_artist = track_artist.assign(
-        artist_position=track_artist['artist_ids'].apply(lambda x: list(range(len(x))))
-        )
-    track_artist = track_artist.explode(["artist_ids", "artist_position"])
-    track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
-    track_artist = track_artist.drop_duplicates()
+    logging.info(f"parsing json {resp}")
+    # Extract relevant fields from the JSON response and store them in a DataFrame
+    df = extract_audio_features_from_json(resp)
 
-    # Create track DataFrame
-    track = played[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
-    track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
-    track = track.drop_duplicates(subset=["id"])
 
-    # Filter final played columns
-    played = played[["unix_timestamp", "played_at", "track_id"]]
+    logging.info(f"got dataframe {df}")
 
-    # Save the DataFrames to CSV files
-    track_artist.to_csv("dags/data/track_artist.csv", index=False)
-    track.to_csv("dags/data/track.csv", index=False)
-    played.to_csv("dags/data/played.csv", index=False)
+    if df.shape[0] > 0:
+        logging.info("saving csv")
+        # Save the DataFrame to a CSV file
+        df.to_csv("dags/data/audio_features.csv", index=False)
+    
+        logging.info(f"Retrieved {df.shape[0]} tracks audio features from Spotify.")
+    else:
+        logging.info(f"Retrieved no audio features data from Spotify.")
 
-def extract_artists(sp, artist_ids: List[str]) -> pd.DataFrame:
+    return df
+
+def get_artists(sp, artist_ids: List[str]) -> pd.DataFrame:
     """
     Extracts artist information from the Spotify API for the given list of artist IDs,
     converts the data to a DataFrame, and saves it as a CSV file.
@@ -205,6 +259,38 @@ def extract_artists(sp, artist_ids: List[str]) -> pd.DataFrame:
     
     return df
 
+def transform_played(played: pd.DataFrame) -> None:
+    """
+    Transforms the recently played DataFrame by sorting, exploding, and saving it into CSV files.
+
+    Args:
+        played (pd.DataFrame): DataFrame containing recently played track information.
+    """
+    played = played.sort_values(by="played_at")
+
+    # Explode to create track_artist DataFrame
+    track_artist = played[["track_id", "artist_ids"]]
+    track_artist = track_artist.assign(
+        artist_position=track_artist['artist_ids'].apply(lambda x: list(range(len(x))))
+        )
+    track_artist = track_artist.explode(["artist_ids", "artist_position"])
+    track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
+    track_artist = track_artist.drop_duplicates()
+
+    # Create track DataFrame
+    track = played[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
+    track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
+    track = track.drop_duplicates(subset=["id"])
+
+    # Filter final played columns
+    played = played[["unix_timestamp", "played_at", "track_id"]]
+
+    # Save the DataFrames to CSV files
+    track_artist.to_csv("dags/data/track_artist.csv", index=False)
+    track.to_csv("dags/data/track.csv", index=False)
+    played.to_csv("dags/data/played.csv", index=False)
+
+
 def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
     """
     Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
@@ -238,7 +324,7 @@ def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
                     """, f)
                     
                 # Insert data from the temporary table into the final table
-                if table_name in ["artist", "track", "track_artist"]:
+                if table_name in ["artist", "track", "audio_features", "track_artist"]:
                     # We only want unique entries in these tables, so we ignore entries that do not match the schema
                     cursor.execute(f"""
                         INSERT INTO {table_name} ({cols})
