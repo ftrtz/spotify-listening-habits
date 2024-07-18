@@ -7,6 +7,7 @@ import logging
 import os
 import json
 
+# Helper functions
 def chunks(lst: List[Any], n: int) -> List[Any]:
     """
     Yield successive n-sized chunks from lst.
@@ -34,6 +35,7 @@ def parse_datetime(datetime_string):
             continue
     raise ValueError(f"time data '{datetime_string}' does not match any of the formats")
 
+# main functions
 def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
     """
     Extracts recently played tracks information from the Spotify API JSON response and 
@@ -324,17 +326,38 @@ def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
                     """, f)
                     
                 # Insert data from the temporary table into the final table
-                if table_name in ["artist", "track", "audio_features", "track_artist"]:
+                if table_name in ["track_artist"]:
                     # We only want unique entries in these tables, so we ignore entries that do not match the schema
                     cursor.execute(f"""
                         INSERT INTO {table_name} ({cols})
-                        SELECT * FROM tmp_{table_name}
+                        SELECT *
+                        FROM tmp_{table_name}
                         ON CONFLICT DO NOTHING;
                     """)
+
+                elif table_name in ["artist", "track", "audio_features"]:
+                    # For these tables we update the entries after checking that the values actually changed
+                    # don't update the id column
+                    update_cols = df.columns[1:]
+                    id_col = df.columns[:1][0]
+
+                    cursor.execute(f"""
+                        INSERT INTO {table_name}
+                        SELECT *, now() AS created
+                        FROM tmp_{table_name}
+                        ON CONFLICT ({id_col}) DO UPDATE SET
+                            {", ".join(update_cols + " = excluded." + update_cols) + ", updated = now()"}
+                        WHERE
+                            ({", ".join(table_name + "." + update_cols)})
+                            IS DISTINCT FROM
+                            ({", ".join("excluded." + update_cols)});
+                    """)
                 else:
+                    # for the rest just insert
                     cursor.execute(f"""
                         INSERT INTO {table_name} ({cols})
-                        SELECT * FROM tmp_{table_name};
+                        SELECT *
+                        FROM tmp_{table_name};
                     """)
                 
             conn.commit()
