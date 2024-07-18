@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS track (
     album_name VARCHAR NOT NULL,
     album_images JSONB,
     uri VARCHAR NOT NULL,
-    created TIMESTAMP,
-    updated TIMESTAMP
+    created TIMESTAMP WITH TIME ZONE,
+    updated TIMESTAMP WITH TIME ZONE
     );
 
 -- create audio_features table
@@ -29,8 +29,8 @@ CREATE TABLE IF NOT EXISTS audio_features (
     tempo FLOAT,
     time_signature INTEGER,
     analysis_url VARCHAR,
-    created TIMESTAMP,
-    updated TIMESTAMP
+    created TIMESTAMP WITH TIME ZONE,
+    updated TIMESTAMP WITH TIME ZONE
     );
 
 -- create artist table
@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS artist (
     popularity INTEGER NOT NULL,
     uri VARCHAR NOT NULL,
     images JSONB,
-    created TIMESTAMP,
-    updated TIMESTAMP
+    created TIMESTAMP WITH TIME ZONE,
+    updated TIMESTAMP WITH TIME ZONE
     );
 
 -- create artist_track link table
