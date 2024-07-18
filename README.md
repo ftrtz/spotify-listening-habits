@@ -7,7 +7,8 @@
 
 
 #### ER Diagram of the final Database
-![spotify - public](https://github.com/ftrtz/spotify-listening-habits/assets/63648399/c34b31d8-971c-45ad-89dd-2ff417b3b5f2)
+![spotify - public](https://github.com/user-attachments/assets/b1158f10-c406-46c3-b5f9-d914a37fd6da)
+
 
 ## Prerequisites 
 - Spotify Account
