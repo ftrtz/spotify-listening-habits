@@ -36,7 +36,7 @@ def parse_datetime(datetime_string):
     raise ValueError(f"time data '{datetime_string}' does not match any of the formats")
 
 # main functions
-def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
+def extract_recently_played(resp: Dict[str, Any]) -> pd.DataFrame:
     """
     Extracts recently played tracks information from the Spotify API JSON response and 
     saves it into a pandas DataFrame.
@@ -84,7 +84,51 @@ def extract_played_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
 
     return pd.DataFrame(tracks)
 
-def extract_audio_features_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
+def extract_tracks(resp: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Extracts tracks information from the Spotify API JSON response and 
+    saves it into a pandas DataFrame.
+
+    Args:
+        resp (Dict[str, Any]): JSON response from Spotify API containing tracks information.
+
+    Returns:
+        pd.DataFrame: DataFrame containing tracks information.
+    """
+    tracks = []
+
+    for item in resp["tracks"]:
+
+        track_id = item["id"]
+        track_name = item["name"]
+        
+        popularity = item["popularity"]
+        duration_ms = item["duration_ms"]
+        artist_ids = list(map(lambda a: a["id"], item["artists"]))
+        artist_names = list(map(lambda a: a["name"], item["artists"]))
+        album_id = item["album"]["id"]
+        album_name = item["album"]["name"]
+        album_images = json.dumps(item["album"]["images"])
+        track_uri = item["uri"]
+
+        track_element = {
+            "track_id": track_id,
+            "track_name": track_name,
+            "popularity": popularity,
+            "duration_ms": duration_ms,
+            "artist_ids": artist_ids,
+            "artist_names": artist_names,
+            "album_id": album_id,
+            "album_name": album_name,
+            "album_images": album_images,
+            "track_uri": track_uri
+        }
+
+        tracks.append(track_element)
+
+    return pd.DataFrame(tracks)
+
+def extract_audio_features(resp: Dict[str, Any]) -> pd.DataFrame:
     """
     Extracts audio features information from the Spotify API JSON response and 
     saves it into a pandas DataFrame.
@@ -135,7 +179,7 @@ def extract_audio_features_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
 
     return pd.DataFrame(audio_features)
 
-def extract_artists_from_json(resp: Dict[str, Any]) -> pd.DataFrame:
+def extract_artists(resp: Dict[str, Any]) -> pd.DataFrame:
     """
     Extracts relevant artist information from the Spotify API JSON response and 
     saves it into a pandas DataFrame.
@@ -188,7 +232,7 @@ def get_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFram
     resp = sp.current_user_recently_played(limit=50, after=last_played_at)
 
     # Extract relevant fields from the JSON response and store them in a DataFrame
-    df = extract_played_from_json(resp)
+    df = extract_recently_played(resp)
     return df
 
 def get_audio_features(sp, track_ids: List[str]) -> pd.DataFrame:
@@ -209,7 +253,7 @@ def get_audio_features(sp, track_ids: List[str]) -> pd.DataFrame:
 
     logging.info(f"parsing json {resp}")
     # Extract relevant fields from the JSON response and store them in a DataFrame
-    df = extract_audio_features_from_json(resp)
+    df = extract_audio_features(resp)
 
 
     logging.info(f"got dataframe {df}")
@@ -243,12 +287,12 @@ def get_artists(sp, artist_ids: List[str]) -> pd.DataFrame:
             # Send the request for artist information
             resp = sp.artists(id_chunk)
             # Extract relevant fields from the JSON response and store them in a DataFrame
-            temp_df = extract_artists_from_json(resp)
+            temp_df = extract_artists(resp)
             df_list.append(temp_df)
         df = pd.concat(df_list)
     elif 50 >= len(artist_ids) > 0:
         resp = sp.artists(artist_ids)
-        df = extract_artists_from_json(resp)
+        df = extract_artists(resp)
     else:
         df = pd.DataFrame()
 
