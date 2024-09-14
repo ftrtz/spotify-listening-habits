@@ -7,6 +7,7 @@ import logging
 import os
 import json
 import glob
+import time
 
 # Helper functions
 def chunks(lst: List[Any], n: int) -> List[Any]:
@@ -37,6 +38,17 @@ def parse_datetime(datetime_string):
     raise ValueError(f"time data '{datetime_string}' does not match any of the formats")
 
 # ======================== Main functions
+def get_db_ids(hook, table_name):
+     
+     with hook.get_conn() as conn:
+        with conn.cursor() as cursor:
+            # get track_ids from db
+            cursor.execute(f"""
+                SELECT id FROM prod.{table_name}
+            """)
+
+            return cursor.fetchall()
+
 # Extraction from JSON response
 def extract_recently_played(resp: Dict[str, Any]) -> pd.DataFrame:
     """
@@ -307,7 +319,7 @@ def get_tracks(sp, track_ids: List[str], chunksize: int=50) -> pd.DataFrame:
     """
     logging.info(f"calling spotify api for {str(len(track_ids))} tracks")
 
-    df_list = []    
+    df_list = []
     for id_chunk in chunks(track_ids, chunksize):
         # Send the request for artist information
         resp = sp.tracks(id_chunk)
@@ -333,12 +345,18 @@ def get_audio_features(sp, track_ids: List[str], chunksize: int=50) -> pd.DataFr
     logging.info(f"calling spotify api for {str(len(track_ids))} tracks")
 
     df_list = []
+    count = 0
     for id_chunk in chunks(track_ids, chunksize):
         # Send the request for recently played tracks
         resp = sp.audio_features(id_chunk)
         # Extract relevant fields from the JSON response and store them in a DataFrame
         temp_df = extract_audio_features(resp)
         df_list.append(temp_df)
+
+        count+=1
+        if (count / 10).is_integer():
+            time.sleep(5)
+
     df = pd.concat(df_list)
     return df
 
@@ -363,6 +381,7 @@ def get_artists(sp, artist_ids: List[str], chunksize: int=50) -> pd.DataFrame:
         # Extract relevant fields from the JSON response and store them in a DataFrame
         temp_df = extract_artists(resp)
         df_list.append(temp_df)
+
     df = pd.concat(df_list)
     return df
 
@@ -494,8 +513,6 @@ def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
             conn.commit()
     else:
         logging.info(f"{csv_path} can't be found.")
-
-
 
 
 
