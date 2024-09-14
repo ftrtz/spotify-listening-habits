@@ -75,9 +75,21 @@ def etl():
         
         if played.shape[0] > 0:
             logging.info(f"Retrieved {played.shape[0]} recently played tracks from Spotify.")
-            transform_played(played)
+            played, track, track_artist = transform_played(played)
+
+            # Save the DataFrames to CSV files
+            track_artist.to_csv("dags/data/track_artist.csv", index=False)
+            track.to_csv("dags/data/track.csv", index=False)
+            played.to_csv("dags/data/played.csv", index=False)
+
         else:
             logging.info(f"Retrieved no new played data from Spotify.")
+
+
+    @task()
+    def transform_recently_played():
+        # placeholder for a function to separate exrtact and transform of played data
+        pass
 
     @task()
     def extract_artist():
@@ -144,7 +156,6 @@ def etl():
                 audio_features = get_audio_features(sp, track_ids, 50)
 
                 if audio_features.shape[0] > 0:
-                    logging.info("saving csv")
                     # Save the DataFrame to a CSV file
                     audio_features.to_csv("dags/data/audio_features.csv", index=False)
                 

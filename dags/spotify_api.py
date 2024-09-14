@@ -366,7 +366,7 @@ def get_artists(sp, artist_ids: List[str], chunksize: int=50) -> pd.DataFrame:
     df = pd.concat(df_list)
     return df
 
-def transform_played(played: pd.DataFrame) -> None:
+def transform_played(played: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Transforms the recently played DataFrame by sorting, exploding, and saving it into CSV files.
 
@@ -392,14 +392,11 @@ def transform_played(played: pd.DataFrame) -> None:
     # Filter final played columns
     played = played[["unix_timestamp", "played_at", "track_id"]]
 
-    # Save the DataFrames to CSV files
-    track_artist.to_csv("dags/data/track_artist.csv", index=False)
-    track.to_csv("dags/data/track.csv", index=False)
-    played.to_csv("dags/data/played.csv", index=False)
+    return played, track, track_artist
 
 
 
-def transform_track(track: pd.DataFrame) -> None:
+def transform_track(track: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Transforms the track DataFrame by sorting, exploding, and saving it into CSV files.
 
@@ -420,9 +417,7 @@ def transform_track(track: pd.DataFrame) -> None:
     track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
     track = track.drop_duplicates(subset=["id"])
 
-    # Save the DataFrames to CSV files
-    track_artist.to_csv("dags/data/track_artist_history.csv", index=False)
-    track.to_csv("dags/data/track_history.csv", index=False)
+    return track, track_artist
 
 
 def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:

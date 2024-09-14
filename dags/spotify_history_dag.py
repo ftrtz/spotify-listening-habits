@@ -54,13 +54,19 @@ def history_etl():
         track = get_tracks(sp, track_ids, 100)
 
         if track.shape[0] > 0:
-            # Save the DataFrame to a CSV file
             logging.info(f"Retrieved {track.shape[0]} tracks from Spotify.")
+            track, track_artist = transform_track(track)
+            
+            # Save the DataFrames to CSV files
+            track_artist.to_csv("dags/data/track_artist_history.csv", index=False)
+            track.to_csv("dags/data/track_history.csv", index=False)
         else:
             logging.info(f"Retrieved no new track data from Spotify.")
 
-        # TODO: save csv in dag function
-        transform_track(track)
+    @task()
+    def transform_track_history():
+        # placeholder for a function to separate exrtact and transform of track data
+        pass
 
 
     @task()
@@ -128,7 +134,6 @@ def history_etl():
                 audio_features = get_audio_features(sp, track_ids, 50)
 
                 if audio_features.shape[0] > 0:
-                    logging.info("saving csv")
                     # Save the DataFrame to a CSV file
                     audio_features.to_csv("dags/data/audio_features_history.csv", index=False)
                 
