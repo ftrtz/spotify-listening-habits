@@ -49,10 +49,17 @@ def history_etl():
             cache_path="dags/.cache"
         ))
 
-        track_ids = pd.read_csv("dags/data/played_history.csv")["track_id"]
+        track_ids = list(pd.read_csv("dags/data/played_history.csv")["track_id"].unique())
 
-        track = get_tracks(sp, track_ids)
+        track = get_tracks(sp, track_ids, 100)
 
+        if track.shape[0] > 0:
+            # Save the DataFrame to a CSV file
+            logging.info(f"Retrieved {track.shape[0]} tracks from Spotify.")
+        else:
+            logging.info(f"Retrieved no new track data from Spotify.")
+
+        # TODO: save csv in dag function
         transform_track(track)
 
 
@@ -63,7 +70,7 @@ def history_etl():
         It reads the artist IDs from the 'track_artist' CSV file and fetches details for those artists.
         """
         # Path to the played songs CSV file
-        csv_path = "dags/data/track_artist.csv"
+        csv_path = "dags/data/track_artist_history.csv"
         
         if os.path.exists(csv_path):
             # Get a list of unique artist IDs
@@ -81,7 +88,14 @@ def history_etl():
                     cache_path="dags/.cache"
                 ))
                 # Extract artist information from the Spotify API
-                get_artists(sp, artist_ids)
+                artist = get_artists(sp, artist_ids, 50)
+
+                if artist.shape[0] > 0:
+                    # Save the DataFrame to a CSV file
+                    artist.to_csv("dags/data/artist_history.csv", index=False)
+                    logging.info(f"Retrieved {artist.shape[0]} artists from Spotify.")
+                else:
+                    logging.info(f"Retrieved no new artist data from Spotify.")
             else:
                 logging.info("No artists to extract.")
         else:
@@ -94,7 +108,7 @@ def history_etl():
         It reads the track IDs from the 'track_artist' CSV file and fetches details for those tracks.
         """
         # Path to the track_artist songs CSV file
-        csv_path = "dags/data/track_artist.csv"
+        csv_path = "dags/data/track_artist_history.csv"
         
         if os.path.exists(csv_path):
             # Get a list of unique artist IDs
@@ -111,12 +125,20 @@ def history_etl():
                     cache_path="dags/.cache"
                 ))
                 # Extract artist information from the Spotify API
-                get_audio_features(sp, track_ids)
+                audio_features = get_audio_features(sp, track_ids, 50)
+
+                if audio_features.shape[0] > 0:
+                    logging.info("saving csv")
+                    # Save the DataFrame to a CSV file
+                    audio_features.to_csv("dags/data/audio_features_history.csv", index=False)
+                
+                    logging.info(f"Retrieved {audio_features.shape[0]} tracks audio features from Spotify.")
+                else:
+                    logging.info(f"Retrieved no audio features data from Spotify.")
             else:
                 logging.info("No audio features to extract.")
         else:
             logging.info("No 'track_artist' CSV file found. No audio features to extract.")
- 
 
     @task()
     def cleanup():

@@ -104,7 +104,14 @@ def etl():
                     cache_path="dags/.cache"
                 ))
                 # Extract artist information from the Spotify API
-                get_artists(sp, artist_ids)
+                artist = get_artists(sp, artist_ids, 50)
+
+                if artist.shape[0] > 0:
+                    # Save the DataFrame to a CSV file
+                    artist.to_csv("dags/data/artist.csv", index=False)
+                    logging.info(f"Retrieved {artist.shape[0]} artists from Spotify.")
+                else:
+                    logging.info(f"Retrieved no new artist data from Spotify.")
             else:
                 logging.info("No artists to extract.")
         else:
@@ -134,7 +141,16 @@ def etl():
                     cache_path="dags/.cache"
                 ))
                 # Extract artist information from the Spotify API
-                get_audio_features(sp, track_ids)
+                audio_features = get_audio_features(sp, track_ids, 50)
+
+                if audio_features.shape[0] > 0:
+                    logging.info("saving csv")
+                    # Save the DataFrame to a CSV file
+                    audio_features.to_csv("dags/data/audio_features.csv", index=False)
+                
+                    logging.info(f"Retrieved {audio_features.shape[0]} tracks audio features from Spotify.")
+                else:
+                    logging.info(f"Retrieved no audio features data from Spotify.")
             else:
                 logging.info("No audio features to extract.")
         else:

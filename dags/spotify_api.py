@@ -52,37 +52,39 @@ def extract_recently_played(resp: Dict[str, Any]) -> pd.DataFrame:
     tracks = []
 
     for item in resp["items"]:
-        played_at = item["played_at"]
-        track_id = item["track"]["id"]
-        track_name = item["track"]["name"]
-        popularity = item["track"]["popularity"]
-        duration_ms = item["track"]["duration_ms"]
-        artist_ids = list(map(lambda a: a["id"], item["track"]["artists"]))
-        artist_names = list(map(lambda a: a["name"], item["track"]["artists"]))
-        album_id = item["track"]["album"]["id"]
-        album_name = item["track"]["album"]["name"]
-        album_images = json.dumps(item["track"]["album"]["images"])
-        track_uri = item["track"]["uri"]
+       if item is not None:
 
-        # parse time and convert to unix timestamp
-        unix_timestamp = int(parse_datetime(played_at).timestamp() * 1000)
+            played_at = item["played_at"]
+            track_id = item["track"]["id"]
+            track_name = item["track"]["name"]
+            popularity = item["track"]["popularity"]
+            duration_ms = item["track"]["duration_ms"]
+            artist_ids = list(map(lambda a: a["id"], item["track"]["artists"]))
+            artist_names = list(map(lambda a: a["name"], item["track"]["artists"]))
+            album_id = item["track"]["album"]["id"]
+            album_name = item["track"]["album"]["name"]
+            album_images = json.dumps(item["track"]["album"]["images"])
+            track_uri = item["track"]["uri"]
 
-        track_element = {
-            "unix_timestamp": unix_timestamp,
-            "played_at": played_at,
-            "track_id": track_id,
-            "track_name": track_name,
-            "popularity": popularity,
-            "duration_ms": duration_ms,
-            "artist_ids": artist_ids,
-            "artist_names": artist_names,
-            "album_id": album_id,
-            "album_name": album_name,
-            "album_images": album_images,
-            "track_uri": track_uri
-        }
+            # parse time and convert to unix timestamp
+            unix_timestamp = int(parse_datetime(played_at).timestamp() * 1000)
 
-        tracks.append(track_element)
+            track_element = {
+                "unix_timestamp": unix_timestamp,
+                "played_at": played_at,
+                "track_id": track_id,
+                "track_name": track_name,
+                "popularity": popularity,
+                "duration_ms": duration_ms,
+                "artist_ids": artist_ids,
+                "artist_names": artist_names,
+                "album_id": album_id,
+                "album_name": album_name,
+                "album_images": album_images,
+                "track_uri": track_uri
+            }
+
+            tracks.append(track_element)
 
     return pd.DataFrame(tracks)
 
@@ -100,33 +102,34 @@ def extract_tracks(resp: Dict[str, Any]) -> pd.DataFrame:
     tracks = []
 
     for item in resp["tracks"]:
+        if item is not None:
 
-        track_id = item["id"]
-        track_name = item["name"]
-        
-        popularity = item["popularity"]
-        duration_ms = item["duration_ms"]
-        artist_ids = list(map(lambda a: a["id"], item["artists"]))
-        artist_names = list(map(lambda a: a["name"], item["artists"]))
-        album_id = item["album"]["id"]
-        album_name = item["album"]["name"]
-        album_images = json.dumps(item["album"]["images"])
-        track_uri = item["uri"]
+            track_id = item["id"]
+            track_name = item["name"]
+            
+            popularity = item["popularity"]
+            duration_ms = item["duration_ms"]
+            artist_ids = list(map(lambda a: a["id"], item["artists"]))
+            artist_names = list(map(lambda a: a["name"], item["artists"]))
+            album_id = item["album"]["id"]
+            album_name = item["album"]["name"]
+            album_images = json.dumps(item["album"]["images"])
+            track_uri = item["uri"]
 
-        track_element = {
-            "track_id": track_id,
-            "track_name": track_name,
-            "popularity": popularity,
-            "duration_ms": duration_ms,
-            "artist_ids": artist_ids,
-            "artist_names": artist_names,
-            "album_id": album_id,
-            "album_name": album_name,
-            "album_images": album_images,
-            "track_uri": track_uri
-        }
+            track_element = {
+                "track_id": track_id,
+                "track_name": track_name,
+                "popularity": popularity,
+                "duration_ms": duration_ms,
+                "artist_ids": artist_ids,
+                "artist_names": artist_names,
+                "album_id": album_id,
+                "album_name": album_name,
+                "album_images": album_images,
+                "track_uri": track_uri
+            }
 
-        tracks.append(track_element)
+            tracks.append(track_element)
 
     return pd.DataFrame(tracks)
 
@@ -144,40 +147,42 @@ def extract_audio_features(resp: Dict[str, Any]) -> pd.DataFrame:
     audio_features = []
 
     for item in resp:
-        track_id = item["id"]
-        danceability = item["danceability"]
-        energy = item["energy"]
-        key = item["key"]
-        loudness = item["loudness"]
-        mode = item["mode"]
-        speechiness = item["speechiness"]
-        acousticness = item["acousticness"]
-        instrumentalness = item["instrumentalness"]
-        liveness = item["liveness"]
-        valence = item["valence"]
-        tempo = item["tempo"]
-        time_signature = item["time_signature"]
-        analysis_url = item["analysis_url"]
+        if item is not None:
+            
+            track_id = item["id"]
+            danceability = item["danceability"]
+            energy = item["energy"]
+            key = item["key"]
+            loudness = item["loudness"]
+            mode = item["mode"]
+            speechiness = item["speechiness"]
+            acousticness = item["acousticness"]
+            instrumentalness = item["instrumentalness"]
+            liveness = item["liveness"]
+            valence = item["valence"]
+            tempo = item["tempo"]
+            time_signature = item["time_signature"]
+            analysis_url = item["analysis_url"]
 
 
-        audio_features_element = {
-            "track_id": track_id,
-            "danceability": danceability,
-            "energy": energy,
-            "key": key,
-            "loudness": loudness,
-            "mode": mode,
-            "speechiness": speechiness,
-            "acousticness": acousticness,
-            "instrumentalness": instrumentalness,
-            "liveness": liveness,
-            "valence": valence,
-            "tempo": tempo,
-            "time_signature": time_signature,
-            "analysis_url": analysis_url
-        }
+            audio_features_element = {
+                "track_id": track_id,
+                "danceability": danceability,
+                "energy": energy,
+                "key": key,
+                "loudness": loudness,
+                "mode": mode,
+                "speechiness": speechiness,
+                "acousticness": acousticness,
+                "instrumentalness": instrumentalness,
+                "liveness": liveness,
+                "valence": valence,
+                "tempo": tempo,
+                "time_signature": time_signature,
+                "analysis_url": analysis_url
+            }
 
-        audio_features.append(audio_features_element)
+            audio_features.append(audio_features_element)
 
     return pd.DataFrame(audio_features)
 
@@ -195,25 +200,27 @@ def extract_artists(resp: Dict[str, Any]) -> pd.DataFrame:
     artists = []
 
     for item in resp["artists"]:
-        id = item["id"]
-        name = item["name"]
-        followers = item["followers"]["total"]
-        genres = "{" + ",".join(f'"{genre}"' for genre in item["genres"]) + "}"
-        popularity = item["popularity"]
-        uri = item["uri"]
-        images = json.dumps(item["images"])
+        if item is not None:
 
-        artist_element = {
-            "id": id,
-            "name": name,
-            "followers": followers,
-            "genres": genres,
-            "popularity": popularity,
-            "uri": uri,
-            "images": images
-        }
+            id = item["id"]
+            name = item["name"]
+            followers = item["followers"]["total"]
+            genres = "{" + ",".join(f'"{genre}"' for genre in item["genres"]) + "}"
+            popularity = item["popularity"]
+            uri = item["uri"]
+            images = json.dumps(item["images"])
 
-        artists.append(artist_element)
+            artist_element = {
+                "id": id,
+                "name": name,
+                "followers": followers,
+                "genres": genres,
+                "popularity": popularity,
+                "uri": uri,
+                "images": images
+            }
+
+            artists.append(artist_element)
 
     return pd.DataFrame(artists)
 
@@ -286,7 +293,7 @@ def get_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFram
     return df
 
 
-def get_tracks(sp, track_ids: List[str]) -> pd.DataFrame:
+def get_tracks(sp, track_ids: List[str], chunksize: int=50) -> pd.DataFrame:
     """
     Extracts track information from the Spotify API for the given list of track IDs,
     converts the data to a DataFrame, and saves it as a CSV file.
@@ -298,10 +305,10 @@ def get_tracks(sp, track_ids: List[str]) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame containing track information.
     """
-    track_ids = track_ids.unique()
+    logging.info(f"calling spotify api for {str(len(track_ids))} tracks")
 
     df_list = []    
-    for id_chunk in chunks(track_ids, 100):
+    for id_chunk in chunks(track_ids, chunksize):
         # Send the request for artist information
         resp = sp.tracks(id_chunk)
         # Extract relevant fields from the JSON response and store them in a DataFrame
@@ -309,16 +316,9 @@ def get_tracks(sp, track_ids: List[str]) -> pd.DataFrame:
         df_list.append(temp_df)
 
     df = pd.concat(df_list)
-
-    if df.shape[0] > 0:
-        # Save the DataFrame to a CSV file
-        logging.info(f"Retrieved {df.shape[0]} tracks from Spotify.")
-    else:
-        logging.info(f"Retrieved no new track data from Spotify.")
-    
     return df
 
-def get_audio_features(sp, track_ids: List[str]) -> pd.DataFrame:
+def get_audio_features(sp, track_ids: List[str], chunksize: int=50) -> pd.DataFrame:
     """
     Extracts tracks audio features from the Spotify API,
     converts the data to a DataFrame, and saves it as a CSV file.
@@ -330,31 +330,19 @@ def get_audio_features(sp, track_ids: List[str]) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame containing recently played track information.
     """
-    track_ids = track_ids.unique()
+    logging.info(f"calling spotify api for {str(len(track_ids))} tracks")
 
-    logging.info(f"calling spotify api for {track_ids}")
-    # Send the request for recently played tracks
-    resp = sp.audio_features(tracks=track_ids)
-
-    logging.info(f"parsing json {resp}")
-    # Extract relevant fields from the JSON response and store them in a DataFrame
-    df = extract_audio_features(resp)
-
-
-    logging.info(f"got dataframe {df}")
-
-    if df.shape[0] > 0:
-        logging.info("saving csv")
-        # Save the DataFrame to a CSV file
-        df.to_csv("dags/data/audio_features.csv", index=False)
-    
-        logging.info(f"Retrieved {df.shape[0]} tracks audio features from Spotify.")
-    else:
-        logging.info(f"Retrieved no audio features data from Spotify.")
-
+    df_list = []
+    for id_chunk in chunks(track_ids, chunksize):
+        # Send the request for recently played tracks
+        resp = sp.audio_features(id_chunk)
+        # Extract relevant fields from the JSON response and store them in a DataFrame
+        temp_df = extract_audio_features(resp)
+        df_list.append(temp_df)
+    df = pd.concat(df_list)
     return df
 
-def get_artists(sp, artist_ids: List[str]) -> pd.DataFrame:
+def get_artists(sp, artist_ids: List[str], chunksize: int=50) -> pd.DataFrame:
     """
     Extracts artist information from the Spotify API for the given list of artist IDs,
     converts the data to a DataFrame, and saves it as a CSV file.
@@ -366,31 +354,16 @@ def get_artists(sp, artist_ids: List[str]) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame containing artist information.
     """
-    artist_ids = artist_ids.unique()
+    logging.info(f"calling spotify api for {str(len(artist_ids))} artists")
 
-    # todo: get rid of this if clause and just use chunks anyways?
-    if len(artist_ids) > 50:
-        df_list = []
-        for id_chunk in chunks(artist_ids, 50):
-            # Send the request for artist information
-            resp = sp.artists(id_chunk)
-            # Extract relevant fields from the JSON response and store them in a DataFrame
-            temp_df = extract_artists(resp)
-            df_list.append(temp_df)
-        df = pd.concat(df_list)
-    elif 50 >= len(artist_ids) > 0:
-        resp = sp.artists(artist_ids)
-        df = extract_artists(resp)
-    else:
-        df = pd.DataFrame()
-
-    if df.shape[0] > 0:
-        # Save the DataFrame to a CSV file
-        df.to_csv("dags/data/artist.csv", index=False)
-        logging.info(f"Retrieved {df.shape[0]} artists from Spotify.")
-    else:
-        logging.info(f"Retrieved no new artist data from Spotify.")
-    
+    df_list = []
+    for id_chunk in chunks(artist_ids, chunksize):
+        # Send the request for artist information
+        resp = sp.artists(id_chunk)
+        # Extract relevant fields from the JSON response and store them in a DataFrame
+        temp_df = extract_artists(resp)
+        df_list.append(temp_df)
+    df = pd.concat(df_list)
     return df
 
 def transform_played(played: pd.DataFrame) -> None:
