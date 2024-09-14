@@ -5,7 +5,7 @@ from airflow.models import Variable
 from datetime import datetime, timedelta
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from spotify_api import get_played_from_history, get_tracks, transform_track, get_artists, get_audio_features, csv_to_postgresql
+from spotify_api import get_played_from_history, get_tracks, transform_track, get_artists, get_audio_features, csv_to_staging
 import os
 import logging
 import pandas as pd
@@ -145,6 +145,19 @@ def history_etl():
         else:
             logging.info("No 'track_artist' CSV file found. No audio features to extract.")
 
+
+    @task(retries=0)
+    def load_tables():
+        """
+        Loads all csv tables data from the CSV files into the corresponding PostgreSQL tables.
+        """
+        # Connect to the PostgreSQL database
+        postgres_hook = PostgresHook(postgres_conn_id="spotify_postgres")
+        tbl_names = ["track_history", "audio_features_history", "played_history", "artist_history", "track_artist_history"]
+        for tbl_name in tbl_names:
+            csv_to_staging(postgres_hook, tbl_name, f"dags/data/{tbl_name}.csv")
+            logging.info(f"Pushed {tbl_name} data to staging database")
+
     @task()
     def cleanup():
         """
@@ -158,7 +171,7 @@ def history_etl():
             logging.info(f"Removed {f_path}")
 
     # Define task dependencies to set the order of execution
-    extract_history() >> extract_track()  >> extract_artist()  >> extract_audio_features() # >> cleanup()
+    extract_history() >> extract_track()  >> extract_artist()  >> extract_audio_features() >> load_tables() # >> cleanup()
 
 # Instantiate the DAG
 dag_run = history_etl()

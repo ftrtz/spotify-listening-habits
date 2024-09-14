@@ -434,6 +434,8 @@ def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
         df = pd.read_csv(csv_path)
         cols = ", ".join(df.columns)
 
+        logging.info(f"Pushing {table_name} ({df.shape[0]} rows) to staging DB.")
+
         with hook.get_conn() as conn:
             with conn.cursor() as cursor:
                 # Create a temporary table to hold the data
@@ -451,7 +453,9 @@ def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
                         COPY tmp_{table_name} ({cols})
                         FROM stdin WITH CSV HEADER DELIMITER as ','
                     """, f)
-                    
+                
+
+                logging.info(f"Inserting {table_name} to production table")
                 # Insert data from the temporary table into the final table
                 if table_name in ["track_artist"]:
                     # We only want unique entries in these tables, so we ignore entries that do not match the schema
@@ -486,6 +490,52 @@ def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
                         SELECT *
                         FROM tmp_{table_name};
                     """)
+                
+            conn.commit()
+    else:
+        logging.info(f"{csv_path} can't be found.")
+
+
+
+
+
+def csv_to_staging(hook, table_name: str, csv_path: str) -> None:
+    """
+    Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
+
+    Args:
+        hook (PostgresHook): The PostgresHook to interact with PostgreSQL.
+        table_name (str): The name of the PostgreSQL table to load data into.
+        csv_path (str): The path to the CSV file containing the data.
+    """
+    if os.path.exists(csv_path):
+        # Read the CSV file into a DataFrame
+        df = pd.read_csv(csv_path)
+        cols = ", ".join(df.columns)
+
+        logging.info(f"Pushing {table_name} ({df.shape[0]} rows) to staging DB.")
+
+        with hook.get_conn() as conn:
+            with conn.cursor() as cursor:
+                # drop previous tables in staging
+                cursor.execute(f"""
+                    DROP TABLE IF EXISTS staging.{table_name};
+                """)
+
+                # Create a table in staging to hold the data
+                cursor.execute(f"""
+                    CREATE TABLE staging.{table_name}
+                    AS SELECT {cols}
+                    FROM prod.{table_name}
+                    WITH NO DATA;
+                """)
+                
+                # Copy data from the CSV file to the temporary table
+                with open(csv_path, 'r') as f:
+                    cursor.copy_expert(f"""
+                        COPY staging.{table_name} ({cols})
+                        FROM stdin WITH CSV HEADER DELIMITER as ','
+                    """, f)
                 
             conn.commit()
     else:
