@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 import logging
 import os
 import json
+import glob
 
 # Helper functions
 def chunks(lst: List[Any], n: int) -> List[Any]:
@@ -35,7 +36,8 @@ def parse_datetime(datetime_string):
             continue
     raise ValueError(f"time data '{datetime_string}' does not match any of the formats")
 
-# main functions
+# ======================== Main functions
+# Extraction from JSON response
 def extract_recently_played(resp: Dict[str, Any]) -> pd.DataFrame:
     """
     Extracts recently played tracks information from the Spotify API JSON response and 
@@ -215,6 +217,54 @@ def extract_artists(resp: Dict[str, Any]) -> pd.DataFrame:
 
     return pd.DataFrame(artists)
 
+
+# Get fucntions
+def get_played_from_history(history_path: str) -> pd.DataFrame:
+    """
+    Extracts played tracks from the spotify streaming history and saves it into
+    a pandas DataFrame.
+
+    Args:
+        history_path str: path to the folder containing the spotify streaming history in JSON format.
+
+    Returns:
+        pd.DataFrame: DataFrame containing played tracks information.
+    """
+    played_history = []
+    missing_uri_count = 0
+
+    history_files = glob.glob(history_path + "/Streaming_History_Audio_*.json")
+    if not history_files:
+        logging.error(f"No streaming history in {os.path.join(os.getcwd(), history_path)}")
+    for file in history_files:
+        with open(file, 'r') as f:
+            history = json.load(f)
+
+            for item in history:
+                unix_timestamp = int(parse_datetime(item["ts"]).timestamp() * 1000)
+                played_at = item["ts"]
+                spotify_track_uri = item["spotify_track_uri"]
+                if spotify_track_uri and spotify_track_uri is not None:
+                    track_id = spotify_track_uri.split("spotify:track:")[1]
+
+                    history_element = {
+                        "unix_timestamp": unix_timestamp,
+                        "played_at": played_at,
+                        "track_id": track_id
+                    }
+
+                    played_history.append(history_element)
+                else:
+                    missing_uri_count+=1
+
+    played_history_df = pd.DataFrame(played_history)
+
+    logging.info(f"Extracted {str(played_history_df.shape[0])} entries from streaming history")
+    logging.info(f"Skipped {str(missing_uri_count)} entries because of missing URIs")
+
+    return played_history_df
+
+
 def get_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFrame:
     """
     Extracts recently played tracks from the Spotify API since the given timestamp,
@@ -235,6 +285,39 @@ def get_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFram
     df = extract_recently_played(resp)
     return df
 
+
+def get_tracks(sp, track_ids: List[str]) -> pd.DataFrame:
+    """
+    Extracts track information from the Spotify API for the given list of track IDs,
+    converts the data to a DataFrame, and saves it as a CSV file.
+
+    Args:
+        sp (spotipy.Spotify): The Spotify API client.
+        track_ids (List[str]): List of track IDs to fetch information for.
+
+    Returns:
+        pd.DataFrame: DataFrame containing track information.
+    """
+    track_ids = track_ids.unique()
+
+    df_list = []    
+    for id_chunk in chunks(track_ids, 100):
+        # Send the request for artist information
+        resp = sp.tracks(id_chunk)
+        # Extract relevant fields from the JSON response and store them in a DataFrame
+        temp_df = extract_tracks(resp)
+        df_list.append(temp_df)
+
+    df = pd.concat(df_list)
+
+    if df.shape[0] > 0:
+        # Save the DataFrame to a CSV file
+        logging.info(f"Retrieved {df.shape[0]} tracks from Spotify.")
+    else:
+        logging.info(f"Retrieved no new track data from Spotify.")
+    
+    return df
+
 def get_audio_features(sp, track_ids: List[str]) -> pd.DataFrame:
     """
     Extracts tracks audio features from the Spotify API,
@@ -247,6 +330,8 @@ def get_audio_features(sp, track_ids: List[str]) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame containing recently played track information.
     """
+    track_ids = track_ids.unique()
+
     logging.info(f"calling spotify api for {track_ids}")
     # Send the request for recently played tracks
     resp = sp.audio_features(tracks=track_ids)
@@ -281,6 +366,9 @@ def get_artists(sp, artist_ids: List[str]) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame containing artist information.
     """
+    artist_ids = artist_ids.unique()
+
+    # todo: get rid of this if clause and just use chunks anyways?
     if len(artist_ids) > 50:
         df_list = []
         for id_chunk in chunks(artist_ids, 50):
@@ -335,6 +423,33 @@ def transform_played(played: pd.DataFrame) -> None:
     track_artist.to_csv("dags/data/track_artist.csv", index=False)
     track.to_csv("dags/data/track.csv", index=False)
     played.to_csv("dags/data/played.csv", index=False)
+
+
+
+def transform_track(track: pd.DataFrame) -> None:
+    """
+    Transforms the track DataFrame by sorting, exploding, and saving it into CSV files.
+
+    Args:
+        played (pd.DataFrame): DataFrame containing track information.
+    """
+    # Explode to create track_artist DataFrame
+    track_artist = track[["track_id", "artist_ids"]]
+    track_artist = track_artist.assign(
+        artist_position=track_artist['artist_ids'].apply(lambda x: list(range(len(x))))
+        )
+    track_artist = track_artist.explode(["artist_ids", "artist_position"])
+    track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
+    track_artist = track_artist.drop_duplicates()
+
+    # Create track DataFrame
+    track = track[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
+    track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
+    track = track.drop_duplicates(subset=["id"])
+
+    # Save the DataFrames to CSV files
+    track_artist.to_csv("dags/data/track_artist_history.csv", index=False)
+    track.to_csv("dags/data/track_history.csv", index=False)
 
 
 def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
