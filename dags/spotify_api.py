@@ -1,3 +1,4 @@
+from sqlalchemy import MetaData, Table
 import pandas as pd
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -38,16 +39,6 @@ def parse_datetime(datetime_string):
     raise ValueError(f"time data '{datetime_string}' does not match any of the formats")
 
 # ======================== Main functions
-def get_db_ids(hook, table_name):
-     
-     with hook.get_conn() as conn:
-        with conn.cursor() as cursor:
-            # get track_ids from db
-            cursor.execute(f"""
-                SELECT id FROM prod.{table_name}
-            """)
-
-            return cursor.fetchall()
 
 # Extraction from JSON response
 def extract_recently_played(resp: Dict[str, Any]) -> pd.DataFrame:
@@ -353,6 +344,7 @@ def get_audio_features(sp, track_ids: List[str], chunksize: int=50) -> pd.DataFr
         temp_df = extract_audio_features(resp)
         df_list.append(temp_df)
 
+        # delay for rate limiting
         count+=1
         if (count / 10).is_integer():
             time.sleep(5)
@@ -392,6 +384,11 @@ def transform_played(played: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, 
     Args:
         played (pd.DataFrame): DataFrame containing recently played track information.
     """
+    # drop null values
+    len_unfiltered = played.shape[0]
+    played = played.dropna(subset=["track_name", "popularity", "duration_ms", "album_id", "album_name", "track_uri"], how="any", axis=0)
+    logging.info(f"Removed {len_unfiltered - played.shape[0]} rows containing missings.")
+
     played = played.sort_values(by="played_at")
 
     # Explode to create track_artist DataFrame
@@ -413,9 +410,21 @@ def transform_played(played: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, 
 
     return played, track, track_artist
 
+def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame)-> tuple[pd.DataFrame, pd.DataFrame]:
+    # drop null values
+    track_len_unfiltered = track.shape[0]
+    track = track.replace("", None)
+    track = track.dropna(subset=["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "track_uri"], how="any", axis=0)
+    logging.info(f"Removed {track_len_unfiltered - track.shape[0]} rows from track containing missings.")
 
+    # make sure that "played" only contains ids that are in "track"
+    played_len_unfiltered = played.shape[0]
+    played = played[played["track_id"].isin(track["track_id"])]
+    logging.info(f"Removed {played_len_unfiltered - played.shape[0]} rows from played because track info is missing.")
 
-def transform_track(track: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return track, played
+
+def create_track_artist(track: pd.DataFrame) -> pd.DataFrame:
     """
     Transforms the track DataFrame by sorting, exploding, and saving it into CSV files.
 
@@ -431,12 +440,18 @@ def transform_track(track: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
     track_artist = track_artist.drop_duplicates()
 
-    # Create track DataFrame
+    return track_artist
+
+
+def finalize_track(track: pd.DataFrame) -> pd.DataFrame:
+
+    # finalize track DataFrame
     track = track[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
     track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
     track = track.drop_duplicates(subset=["id"])
+    return track
 
-    return track, track_artist
+    
 
 
 def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
@@ -515,8 +530,8 @@ def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
         logging.info(f"{csv_path} can't be found.")
 
 
-
-def csv_to_staging(hook, table_name: str, csv_path: str) -> None:
+# TODO: add prod schema variable
+def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str="staging") -> None:
     """
     Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
 
@@ -536,12 +551,12 @@ def csv_to_staging(hook, table_name: str, csv_path: str) -> None:
             with conn.cursor() as cursor:
                 # drop previous tables in staging
                 cursor.execute(f"""
-                    DROP TABLE IF EXISTS staging.{table_name};
+                    DROP TABLE IF EXISTS {staging_schema}.{table_name};
                 """)
 
                 # Create a table in staging to hold the data
                 cursor.execute(f"""
-                    CREATE TABLE staging.{table_name}
+                    CREATE TABLE {staging_schema}.{table_name}
                     AS SELECT {cols}
                     FROM prod.{table_name}
                     WITH NO DATA;
@@ -550,10 +565,86 @@ def csv_to_staging(hook, table_name: str, csv_path: str) -> None:
                 # Copy data from the CSV file to the temporary table
                 with open(csv_path, 'r') as f:
                     cursor.copy_expert(f"""
-                        COPY staging.{table_name} ({cols})
+                        COPY {staging_schema}.{table_name} ({cols})
                         FROM stdin WITH CSV HEADER DELIMITER as ','
                     """, f)
                 
             conn.commit()
     else:
         logging.info(f"{csv_path} can't be found.")
+
+
+def staging_to_prod(hook, table_name: str, staging_schema: str="staging") -> None:
+    """
+    Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
+
+    Args:
+        hook (PostgresHook): The PostgresHook to interact with PostgreSQL.
+        table_name (str): The name of the PostgreSQL table to load data into.
+        csv_path (str): The path to the CSV file containing the data.
+    """
+
+    with hook.get_conn() as conn:
+        with conn.cursor() as cursor:
+
+            # retrieve colnames
+            # Reflect the table from the metadata
+            tbl_meta = Table(table_name, MetaData(), autoload_with=hook.get_sqlalchemy_engine(), schema="prod")
+            cols = [col.name for col in tbl_meta.columns]
+            primary_keys = [col.name for col in tbl_meta.primary_key]
+
+            logging.info(f"Inserting {table_name} to production table")
+            # Insert data from staging into the final table
+
+            if table_name in ["artist", "track", "audio_features"]:
+                # For these tables we update the entries after checking that the values actually changed
+                # don't update the primary key column
+                cols.remove('created')
+                cols.remove('updated')
+                update_cols = pd.Series(list(set(cols) - set(primary_keys)))
+
+                sql = f"""
+                    INSERT INTO prod.{table_name}
+                    SELECT *, now() AS created
+                    FROM {staging_schema}.{table_name}
+                    ON CONFLICT ({", ".join(primary_keys)}) DO UPDATE SET
+                        {", ".join(update_cols + " = excluded." + update_cols) + ", updated = now()"}
+                    WHERE
+                        ({", ".join(table_name + "." + update_cols)})
+                        IS DISTINCT FROM
+                        ({", ".join("excluded." + update_cols)});
+                """
+                logging.info(sql)
+
+                cursor.execute(f"""
+                    INSERT INTO prod.{table_name}
+                    SELECT *, now() AS created
+                    FROM {staging_schema}.{table_name}
+                    ON CONFLICT ({", ".join(primary_keys)}) DO UPDATE SET
+                        {", ".join(update_cols + " = excluded." + update_cols) + ", updated = now()"}
+                    WHERE
+                        ({", ".join(table_name + "." + update_cols)})
+                        IS DISTINCT FROM
+                        ({", ".join("excluded." + update_cols)});
+                """)
+
+            elif table_name in ["played", "track_artist"]:
+                # We only want unique entries in these tables, so we ignore entries that do not match the schema
+                cursor.execute(f"""
+                    INSERT INTO prod.{table_name} ({", ".join(cols)})
+                    SELECT *
+                    FROM {staging_schema}.{table_name}
+                    ON CONFLICT DO NOTHING;
+                """)
+
+            else:
+                logging.info(f"No insert sql for table {table_name} specified")
+
+                # for the rest just insert
+                #cursor.execute(f"""
+                #    INSERT INTO prod.{table_name} ({", ".join(cols)})
+                #    SELECT *
+                #    FROM {staging_schema}.{table_name};
+                #""")
+            
+        conn.commit()

@@ -7,6 +7,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from spotify_api import get_recently_played, transform_played, get_artists, get_audio_features, csv_to_postgresql
 import os
+import glob
 import logging
 import pandas as pd
 
@@ -76,6 +77,10 @@ def etl():
         if played.shape[0] > 0:
             logging.info(f"Retrieved {played.shape[0]} recently played tracks from Spotify.")
             played, track, track_artist = transform_played(played)
+
+            # create data dir
+            if not os.path.exists("dags/data"):
+                os.makedirs("dags/data")
 
             # Save the DataFrames to CSV files
             track_artist.to_csv("dags/data/track_artist.csv", index=False)
@@ -184,12 +189,11 @@ def etl():
         """
         Cleans up the temporary CSV files after loading the data into the PostgreSQL database.
         """
-        filenames = os.listdir("dags/data/")
+        filenames = glob.glob("dags/data/*.csv")
 
         for f in filenames:
-            f_path = os.path.join("dags/data/", f)
-            os.remove(f_path)
-            logging.info(f"Removed {f_path}")
+            os.remove(f)
+            logging.info(f"Removed {f}")
         
     # Define task dependencies to set the order of execution
     create_db_tables >> extract_played() >> extract_audio_features() >> extract_artist() >> load_tables() >> cleanup()

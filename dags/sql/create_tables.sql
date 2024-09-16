@@ -1,9 +1,10 @@
 -- CREATE SCHEMAS
 CREATE SCHEMA IF NOT EXISTS prod;
 CREATE SCHEMA IF NOT EXISTS staging;
+CREATE SCHEMA IF NOT EXISTS history;
 
 
--- CREATE TABLES
+-- CREATE TABLES ON PROD
 -- create track table
 CREATE TABLE IF NOT EXISTS prod.track (
     id VARCHAR PRIMARY KEY,
@@ -20,7 +21,7 @@ CREATE TABLE IF NOT EXISTS prod.track (
 
 -- create audio_features table
 CREATE TABLE IF NOT EXISTS prod.audio_features (
-    track_id VARCHAR PRIMARY KEY REFERENCES track(id),
+    track_id VARCHAR PRIMARY KEY REFERENCES prod.track(id),
     danceability FLOAT,
     energy FLOAT,
     key INTEGER,
@@ -54,8 +55,8 @@ CREATE TABLE IF NOT EXISTS prod.artist (
 -- create artist_track link table
 CREATE TABLE IF NOT EXISTS prod.track_artist (
     PRIMARY KEY(track_id, artist_id),
-    track_id VARCHAR NOT NULL REFERENCES track(id),
-    artist_id VARCHAR NOT NULL REFERENCES artist(id),
+    track_id VARCHAR NOT NULL REFERENCES prod.track(id),
+    artist_id VARCHAR NOT NULL REFERENCES prod.artist(id),
     artist_position INTEGER NOT NULL
 );
 
@@ -63,5 +64,5 @@ CREATE TABLE IF NOT EXISTS prod.track_artist (
 CREATE TABLE IF NOT EXISTS prod.played (
     unix_timestamp BIGINT PRIMARY KEY,
     played_at TIMESTAMP WITH TIME ZONE,
-    track_id VARCHAR NOT NULL REFERENCES track(id)
+    track_id VARCHAR NOT NULL REFERENCES prod.track(id)
     );

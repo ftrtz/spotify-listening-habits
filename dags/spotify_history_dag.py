@@ -5,8 +5,9 @@ from airflow.models import Variable
 from datetime import datetime, timedelta
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from spotify_api import get_played_from_history, get_tracks, transform_track, get_artists, get_audio_features, csv_to_staging, get_db_ids
+from spotify_api import get_played_from_history, get_tracks, clean_track_and_played, create_track_artist, finalize_track, get_artists, get_audio_features, csv_to_staging, staging_to_prod
 import os
+import glob
 import logging
 import pandas as pd
 
@@ -26,15 +27,51 @@ default_args = {
     catchup=False
 )
 
-
+# TODO: parametrize prod schema name
 def history_etl():
+
+
+    @task.bash
+    def backup_db():
+        # create backup data dir
+        backup_dir = "dags/data/backup/"
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+
+        # get connection info from hook
+        pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
+        conn = pg_hook.get_connection(conn_id="spotify_postgres")
+
+        # Get connection details dynamically from the connection object
+        host = conn.host
+        port = conn.port
+        user = conn.login
+        password = conn.password
+        dbname = "spotify"
+        schema = "prod"
+        # "${AIRFLOW_HOME}/dags/data/backup/spotify_prod_dump.sql
+        dump_file_path = "${AIRFLOW_HOME}/" + backup_dir + datetime.today().strftime('%Y%m%d') + "_spotify_prod_dump.sql"  # Path where the dump will be saved
+
+        return f"PGPASSWORD={password} pg_dump -h {host} -p {port} -U {user} {dbname} -n {schema} > {dump_file_path}"
+
+
+    # Task to create the 'played' table if it doesn't exist
+    create_db_tables = SQLExecuteQueryOperator(
+        task_id='create_db_tables',
+        conn_id='spotify_postgres',
+        sql='create_tables.sql'
+    )
 
     @task()
     def extract_history():
 
+        # create history data dir
+        if not os.path.exists("dags/data/history"):
+            os.makedirs("dags/data/history")
+
         history_folder = "dags/SpotifyExtendedStreamingHistory"
-        played_history_df = get_played_from_history(history_folder)
-        played_history_df.to_csv("dags/data/played_history.csv", index=False)
+        played = get_played_from_history(history_folder)
+        played.to_csv("dags/data/history/played.csv", index=False)
 
 
     @task()
@@ -48,31 +85,33 @@ def history_etl():
             cache_path="dags/.cache"
         ))
 
-        track_ids_new = list(pd.read_csv("dags/data/played_history.csv")["track_id"].unique())
-
-        # Get track_ids from db to filter out already present ids
-        pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
-        track_ids_db = get_db_ids(pg_hook, "track")
-
-        track_ids = list(set(track_ids_new) - set(track_ids_db))
+        track_ids = list(pd.read_csv("dags/data/history/played.csv")["track_id"].unique())
 
         # call spotify api
         track = get_tracks(sp, track_ids, 100)
 
         if track.shape[0] > 0:
-            logging.info(f"Retrieved {track.shape[0]} tracks from Spotify.")
-            track, track_artist = transform_track(track)
+            logging.info(f"Retrieved {track.shape[0]} history tracks from Spotify.")
             
-            # Save the DataFrames to CSV files
-            track_artist.to_csv("dags/data/track_artist_history.csv", index=False)
-            track.to_csv("dags/data/track_history.csv", index=False)
+            # Save the track CSV file
+            track.to_csv("dags/data/history/track.csv", index=False)
         else:
-            logging.info(f"Retrieved no new track data from Spotify.")
+            logging.info(f"Retrieved no track data from Spotify.")
 
     @task()
     def transform_track_history():
-        # placeholder for a function to separate exrtact and transform of track data
-        pass
+        data_path = "dags/data/history/"
+        track = pd.read_csv(data_path + "track.csv", converters={'artist_ids': pd.eval}) # coinverter needed, otherwise artist_ids is a string
+        played = pd.read_csv(data_path + "played.csv")
+
+        track, played = clean_track_and_played(track, played)
+        track_artist = create_track_artist(track)
+        track = finalize_track(track)
+
+        # save to csv
+        track_artist.to_csv(data_path + "track_artist.csv", index=False)
+        track.to_csv(data_path + "track.csv", index=False)
+        played.to_csv(data_path + "played.csv", index=False)
 
 
     @task()
@@ -82,19 +121,12 @@ def history_etl():
         It reads the artist IDs from the 'track_artist' CSV file and fetches details for those artists.
         """
         # Path to the played songs CSV file
-        csv_path = "dags/data/track_artist_history.csv"
+        csv_path = "dags/data/history/track_artist.csv"
         
         if os.path.exists(csv_path):
             # Get a list of unique artist IDs
             track_artist = pd.read_csv(csv_path)
-            artist_ids_new = list(track_artist["artist_id"].unique())
-
-            # Get artist ids from db to filter out already present ids
-            pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
-            artist_ids_db = get_db_ids(pg_hook, "artist")
-
-            artist_ids = list(set(artist_ids_new) - set(artist_ids_db))
-
+            artist_ids = list(track_artist["artist_id"].unique())
 
             if artist_ids:
                 # Prepare the Spotify API client
@@ -108,9 +140,10 @@ def history_etl():
                 artist = get_artists(sp, artist_ids, 50)
 
                 if artist.shape[0] > 0:
-                    # Save the DataFrame to a CSV file
-                    artist.to_csv("dags/data/artist_history.csv", index=False)
                     logging.info(f"Retrieved {artist.shape[0]} artists from Spotify.")
+
+                    # Save the DataFrame to a CSV file
+                    artist.to_csv("dags/data/history/artist.csv", index=False)
                 else:
                     logging.info(f"Retrieved no new artist data from Spotify.")
             else:
@@ -125,13 +158,12 @@ def history_etl():
         It reads the track IDs from the 'track_artist' CSV file and fetches details for those tracks.
         """
         # Path to the track_artist songs CSV file
-        csv_path = "dags/data/track_artist_history.csv"
+        csv_path = "dags/data/history/track_artist.csv"
         
         if os.path.exists(csv_path):
             # Get a list of unique artist IDs
             track_artist = pd.read_csv(csv_path)
             track_ids = list(track_artist["track_id"].unique())
-            # TODO: Check if the tracks are already in the database to avoid unnecessary API requests
 
             if track_ids:
                 # Prepare the Spotify API client
@@ -146,7 +178,7 @@ def history_etl():
 
                 if audio_features.shape[0] > 0:
                     # Save the DataFrame to a CSV file
-                    audio_features.to_csv("dags/data/audio_features_history.csv", index=False)
+                    audio_features.to_csv("dags/data/history/audio_features.csv", index=False)
                 
                     logging.info(f"Retrieved {audio_features.shape[0]} tracks audio features from Spotify.")
                 else:
@@ -164,25 +196,57 @@ def history_etl():
         """
         # Connect to the PostgreSQL database
         pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
-        tbl_names = ["track_history", "audio_features_history", "played_history", "artist_history", "track_artist_history"]
+        tbl_names = ["track", "audio_features", "played", "artist", "track_artist"]
         for tbl_name in tbl_names:
-            csv_to_staging(pg_hook, tbl_name, f"dags/data/{tbl_name}.csv")
+            csv_to_staging(pg_hook, tbl_name, f"dags/data/history/{tbl_name}.csv", staging_schema="history")
             logging.info(f"Pushed {tbl_name} data to staging database")
 
+    @task(retries=0)
+    def insert_prod():
+        """
+        Insert data from staging tables to prod.
+        """
+        # Connect to the PostgreSQL database
+        pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
+        tbl_names = ["track", "audio_features", "played", "artist", "track_artist"]
+        for tbl_name in tbl_names:
+            staging_to_prod(pg_hook, tbl_name, staging_schema="history")
+
+
     @task()
-    def cleanup():
+    def cleanup_dir():
         """
         Cleans up the temporary CSV files after loading the data into the PostgreSQL database.
         """
-        filenames = os.listdir("dags/data/")
+        filenames = glob.glob("dags/data/history/*.csv")
 
         for f in filenames:
-            f_path = os.path.join("dags/data/", f)
-            os.remove(f_path)
-            logging.info(f"Removed {f_path}")
+            os.remove(f)
+            logging.info(f"Removed {f}")
+
+
+    # Clean up the staging DB tables
+    cleanup_db = SQLExecuteQueryOperator(
+        task_id='cleanup_db',
+        conn_id='spotify_postgres',
+        sql='cleanup_db.sql',
+        parameters={"staging_schema": "history"}
+    )
+
+    @task.bash
+    def cleanup_backups():
+
+        # preserve the 3 latest productive database dumps
+        filenames = os.listdir("dags/data/backup/")
+        print(filenames)
+        while len(filenames) > 3:
+            os.remove("dags/data/backup/" + filenames[0])
+            logging.info(f"Removed {filenames[0]}")
+            filenames = filenames[1:]
+
 
     # Define task dependencies to set the order of execution
-    extract_history() >> extract_track()  >> extract_artist()  >> extract_audio_features() >> load_tables() # >> cleanup()
+    backup_db() >> create_db_tables >> extract_history() >> extract_track() >> transform_track_history() >> extract_artist()  >> extract_audio_features() >> load_tables() >> insert_prod() >> cleanup_dir() >> cleanup_db >> cleanup_backups()
 
 # Instantiate the DAG
 dag_run = history_etl()
