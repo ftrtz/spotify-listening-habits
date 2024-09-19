@@ -451,87 +451,8 @@ def finalize_track(track: pd.DataFrame) -> pd.DataFrame:
     track = track.drop_duplicates(subset=["id"])
     return track
 
-    
 
-
-def csv_to_postgresql(hook, table_name: str, csv_path: str) -> None:
-    """
-    Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
-
-    Args:
-        hook (PostgresHook): The PostgresHook to interact with PostgreSQL.
-        table_name (str): The name of the PostgreSQL table to load data into.
-        csv_path (str): The path to the CSV file containing the data.
-    """
-    if os.path.exists(csv_path):
-        # Read the CSV file into a DataFrame
-        df = pd.read_csv(csv_path)
-        cols = ", ".join(df.columns)
-
-        logging.info(f"Pushing {table_name} ({df.shape[0]} rows) to staging DB.")
-
-        with hook.get_conn() as conn:
-            with conn.cursor() as cursor:
-                # Create a temporary table to hold the data
-                cursor.execute(f"""
-                    CREATE TEMP TABLE tmp_{table_name}
-                    ON COMMIT DROP
-                    AS SELECT {cols}
-                    FROM {table_name}
-                    WITH NO DATA;
-                """)
-                
-                # Copy data from the CSV file to the temporary table
-                with open(csv_path, 'r') as f:
-                    cursor.copy_expert(f"""
-                        COPY tmp_{table_name} ({cols})
-                        FROM stdin WITH CSV HEADER DELIMITER as ','
-                    """, f)
-                
-
-                logging.info(f"Inserting {table_name} to production table")
-                # Insert data from the temporary table into the final table
-                if table_name in ["track_artist"]:
-                    # We only want unique entries in these tables, so we ignore entries that do not match the schema
-                    cursor.execute(f"""
-                        INSERT INTO {table_name} ({cols})
-                        SELECT *
-                        FROM tmp_{table_name}
-                        ON CONFLICT DO NOTHING;
-                    """)
-
-                elif table_name in ["artist", "track", "audio_features"]:
-                    # For these tables we update the entries after checking that the values actually changed
-                    # don't update the id column
-                    update_cols = df.columns[1:]
-                    id_col = df.columns[:1][0]
-
-                    cursor.execute(f"""
-                        INSERT INTO {table_name}
-                        SELECT *, now() AS created
-                        FROM tmp_{table_name}
-                        ON CONFLICT ({id_col}) DO UPDATE SET
-                            {", ".join(update_cols + " = excluded." + update_cols) + ", updated = now()"}
-                        WHERE
-                            ({", ".join(table_name + "." + update_cols)})
-                            IS DISTINCT FROM
-                            ({", ".join("excluded." + update_cols)});
-                    """)
-                else:
-                    # for the rest just insert
-                    cursor.execute(f"""
-                        INSERT INTO {table_name} ({cols})
-                        SELECT *
-                        FROM tmp_{table_name};
-                    """)
-                
-            conn.commit()
-    else:
-        logging.info(f"{csv_path} can't be found.")
-
-
-# TODO: add prod schema variable
-def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str="staging") -> None:
+def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str, prod_schema: str) -> None:
     """
     Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
 
@@ -558,7 +479,7 @@ def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str="st
                 cursor.execute(f"""
                     CREATE TABLE {staging_schema}.{table_name}
                     AS SELECT {cols}
-                    FROM prod.{table_name}
+                    FROM {prod_schema}.{table_name}
                     WITH NO DATA;
                 """)
                 
@@ -574,7 +495,7 @@ def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str="st
         logging.info(f"{csv_path} can't be found.")
 
 
-def staging_to_prod(hook, table_name: str, staging_schema: str="staging") -> None:
+def staging_to_prod(hook, table_name: str, staging_schema: str, prod_schema: str) -> None:
     """
     Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
 
@@ -603,21 +524,8 @@ def staging_to_prod(hook, table_name: str, staging_schema: str="staging") -> Non
                 cols.remove('updated')
                 update_cols = pd.Series(list(set(cols) - set(primary_keys)))
 
-                sql = f"""
-                    INSERT INTO prod.{table_name}
-                    SELECT *, now() AS created
-                    FROM {staging_schema}.{table_name}
-                    ON CONFLICT ({", ".join(primary_keys)}) DO UPDATE SET
-                        {", ".join(update_cols + " = excluded." + update_cols) + ", updated = now()"}
-                    WHERE
-                        ({", ".join(table_name + "." + update_cols)})
-                        IS DISTINCT FROM
-                        ({", ".join("excluded." + update_cols)});
-                """
-                logging.info(sql)
-
                 cursor.execute(f"""
-                    INSERT INTO prod.{table_name}
+                    INSERT INTO {prod_schema}.{table_name}
                     SELECT *, now() AS created
                     FROM {staging_schema}.{table_name}
                     ON CONFLICT ({", ".join(primary_keys)}) DO UPDATE SET
@@ -631,7 +539,7 @@ def staging_to_prod(hook, table_name: str, staging_schema: str="staging") -> Non
             elif table_name in ["played", "track_artist"]:
                 # We only want unique entries in these tables, so we ignore entries that do not match the schema
                 cursor.execute(f"""
-                    INSERT INTO prod.{table_name} ({", ".join(cols)})
+                    INSERT INTO {prod_schema}.{table_name} ({", ".join(cols)})
                     SELECT *
                     FROM {staging_schema}.{table_name}
                     ON CONFLICT DO NOTHING;
@@ -640,11 +548,4 @@ def staging_to_prod(hook, table_name: str, staging_schema: str="staging") -> Non
             else:
                 logging.info(f"No insert sql for table {table_name} specified")
 
-                # for the rest just insert
-                #cursor.execute(f"""
-                #    INSERT INTO prod.{table_name} ({", ".join(cols)})
-                #    SELECT *
-                #    FROM {staging_schema}.{table_name};
-                #""")
-            
         conn.commit()

@@ -48,18 +48,19 @@ def history_etl():
         user = conn.login
         password = conn.password
         dbname = "spotify"
-        schema = "prod"
-        # "${AIRFLOW_HOME}/dags/data/backup/spotify_prod_dump.sql
+        prod_schema = Variable.get("PROD_SCHEMA")
+
         dump_file_path = "${AIRFLOW_HOME}/" + backup_dir + datetime.today().strftime('%Y%m%d') + "_spotify_prod_dump.sql"  # Path where the dump will be saved
 
-        return f"PGPASSWORD={password} pg_dump -h {host} -p {port} -U {user} {dbname} -n {schema} > {dump_file_path}"
+        return f"PGPASSWORD={password} pg_dump -h {host} -p {port} -U {user} {dbname} -n {prod_schema} > {dump_file_path}"
 
 
     # Task to create the 'played' table if it doesn't exist
     create_db_tables = SQLExecuteQueryOperator(
         task_id='create_db_tables',
         conn_id='spotify_postgres',
-        sql='create_tables.sql'
+        sql='create_tables.sql',
+        parameters={"prod_schmea": Variable.get("PROD_SCHEMA"), "staging_schema": "history"}
     )
 
     @task()
@@ -198,7 +199,7 @@ def history_etl():
         pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
         tbl_names = ["track", "audio_features", "played", "artist", "track_artist"]
         for tbl_name in tbl_names:
-            csv_to_staging(pg_hook, tbl_name, f"dags/data/history/{tbl_name}.csv", staging_schema="history")
+            csv_to_staging(pg_hook, tbl_name, f"dags/data/history/{tbl_name}.csv", staging_schema="history", prod_schema=Variable.get("PROD_SCHEMA"))
             logging.info(f"Pushed {tbl_name} data to staging database")
 
     @task(retries=0)
@@ -210,7 +211,7 @@ def history_etl():
         pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
         tbl_names = ["track", "audio_features", "played", "artist", "track_artist"]
         for tbl_name in tbl_names:
-            staging_to_prod(pg_hook, tbl_name, staging_schema="history")
+            staging_to_prod(pg_hook, tbl_name, staging_schema="history", prod_schema = Variable.get("PROD_SCHEMA"))
 
 
     @task()
@@ -225,15 +226,7 @@ def history_etl():
             logging.info(f"Removed {f}")
 
 
-    # Clean up the staging DB tables
-    cleanup_db = SQLExecuteQueryOperator(
-        task_id='cleanup_db',
-        conn_id='spotify_postgres',
-        sql='cleanup_db.sql',
-        parameters={"staging_schema": "history"}
-    )
-
-    @task.bash
+    @task()
     def cleanup_backups():
 
         # preserve the 3 latest productive database dumps
@@ -246,7 +239,7 @@ def history_etl():
 
 
     # Define task dependencies to set the order of execution
-    backup_db() >> create_db_tables >> extract_history() >> extract_track() >> transform_track_history() >> extract_artist()  >> extract_audio_features() >> load_tables() >> insert_prod() >> cleanup_dir() >> cleanup_db >> cleanup_backups()
+    backup_db() >> create_db_tables >> extract_history() >> extract_track() >> transform_track_history() >> extract_artist()  >> extract_audio_features() >> load_tables() >> insert_prod() >> cleanup_dir() >> cleanup_backups()
 
 # Instantiate the DAG
 dag_run = history_etl()

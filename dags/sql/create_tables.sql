@@ -1,12 +1,11 @@
 -- CREATE SCHEMAS
-CREATE SCHEMA IF NOT EXISTS prod;
-CREATE SCHEMA IF NOT EXISTS staging;
-CREATE SCHEMA IF NOT EXISTS history;
+CREATE SCHEMA IF NOT EXISTS {prod_schema};
+CREATE SCHEMA IF NOT EXISTS {staging_schema};
 
 
 -- CREATE TABLES ON PROD
 -- create track table
-CREATE TABLE IF NOT EXISTS prod.track (
+CREATE TABLE IF NOT EXISTS {prod_schema}.track (
     id VARCHAR PRIMARY KEY,
     name VARCHAR NOT NULL,
     popularity INTEGER NOT NULL,
@@ -20,8 +19,8 @@ CREATE TABLE IF NOT EXISTS prod.track (
     );
 
 -- create audio_features table
-CREATE TABLE IF NOT EXISTS prod.audio_features (
-    track_id VARCHAR PRIMARY KEY REFERENCES prod.track(id),
+CREATE TABLE IF NOT EXISTS {prod_schema}.audio_features (
+    track_id VARCHAR PRIMARY KEY REFERENCES {prod_schema}.track(id),
     danceability FLOAT,
     energy FLOAT,
     key INTEGER,
@@ -40,7 +39,7 @@ CREATE TABLE IF NOT EXISTS prod.audio_features (
     );
 
 -- create artist table
-CREATE TABLE IF NOT EXISTS prod.artist (
+CREATE TABLE IF NOT EXISTS {prod_schema}.artist (
     id VARCHAR NOT NULL PRIMARY KEY,
     name VARCHAR NOT NULL,
     followers INTEGER NOT NULL,
@@ -53,16 +52,16 @@ CREATE TABLE IF NOT EXISTS prod.artist (
     );
 
 -- create artist_track link table
-CREATE TABLE IF NOT EXISTS prod.track_artist (
+CREATE TABLE IF NOT EXISTS {prod_schema}.track_artist (
     PRIMARY KEY(track_id, artist_id),
-    track_id VARCHAR NOT NULL REFERENCES prod.track(id),
-    artist_id VARCHAR NOT NULL REFERENCES prod.artist(id),
+    track_id VARCHAR NOT NULL REFERENCES {prod_schema}.track(id),
+    artist_id VARCHAR NOT NULL REFERENCES {prod_schema}.artist(id),
     artist_position INTEGER NOT NULL
 );
 
 -- create played table
-CREATE TABLE IF NOT EXISTS prod.played (
+CREATE TABLE IF NOT EXISTS {prod_schema}.played (
     unix_timestamp BIGINT PRIMARY KEY,
     played_at TIMESTAMP WITH TIME ZONE,
-    track_id VARCHAR NOT NULL REFERENCES prod.track(id)
+    track_id VARCHAR NOT NULL REFERENCES {prod_schema}.track(id)
     );

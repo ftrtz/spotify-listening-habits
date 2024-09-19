@@ -5,7 +5,7 @@ from airflow.models import Variable
 from datetime import datetime, timedelta
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from spotify_api import get_recently_played, transform_played, get_artists, get_audio_features, csv_to_postgresql
+from spotify_api import get_recently_played, transform_played, get_artists, get_audio_features, csv_to_staging, staging_to_prod
 import os
 import glob
 import logging
@@ -49,13 +49,14 @@ def etl():
         """
         # Initialize PostgresHook to interact with the PostgreSQL database
         postgres_hook = PostgresHook(postgres_conn_id='spotify_postgres')
+        prod_schema = Variable.get("PROD_SCHEMA")
         
         # Execute the query to get the most recent 'played_at' timestamp
-        unix_timestamp = postgres_hook.get_first('SELECT MAX(unix_timestamp) FROM played')[0]
+        unix_timestamp = postgres_hook.get_first(f'SELECT MAX(unix_timestamp) FROM {prod_schema}.played')[0]
         
         # Convert the timestamp if available, else set to None
         if unix_timestamp:
-            played_at = postgres_hook.get_first('SELECT MAX(played_at) FROM played')[0]
+            played_at = postgres_hook.get_first(f'SELECT MAX(played_at) FROM {prod_schema}.played')[0]
             logging.info(f"Last played track was at {played_at} - Unix Timestamp: {unix_timestamp}")
         else:
             unix_timestamp = None
@@ -93,7 +94,7 @@ def etl():
 
     @task()
     def transform_recently_played():
-        # placeholder for a function to separate exrtact and transform of played data
+        # placeholder for a function to separate extract and transform of played data
         pass
 
     @task()
@@ -178,11 +179,23 @@ def etl():
         Loads all csv tables data from the CSV files into the corresponding PostgreSQL tables.
         """
         # Connect to the PostgreSQL database
-        postgres_hook = PostgresHook(postgres_conn_id="spotify_postgres")
+        pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
         tbl_names = ["track", "audio_features", "played", "artist", "track_artist"]
         for tbl_name in tbl_names:
-            csv_to_postgresql(postgres_hook, tbl_name, f"dags/data/{tbl_name}.csv")
-            logging.info(f"Pushed {tbl_name} data to database")
+            csv_to_staging(pg_hook, tbl_name, f"dags/data/{tbl_name}.csv", staging_schema="staging", prod_schema=Variable.get("PROD_SCHEMA"))
+            logging.info(f"Pushed {tbl_name} data to staging database")
+
+    @task(retries=0)
+    def insert_prod():
+        """
+        Insert data from staging tables to prod.
+        """
+        # Connect to the PostgreSQL database
+        pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
+        tbl_names = ["track", "audio_features", "played", "artist", "track_artist"]
+        for tbl_name in tbl_names:
+            staging_to_prod(pg_hook, tbl_name, staging_schema="staging", prod_schema = Variable.get("PROD_SCHEMA"))
+
 
     @task()
     def cleanup():
@@ -196,7 +209,7 @@ def etl():
             logging.info(f"Removed {f}")
         
     # Define task dependencies to set the order of execution
-    create_db_tables >> extract_played() >> extract_audio_features() >> extract_artist() >> load_tables() >> cleanup()
+    create_db_tables >> extract_played() >> extract_audio_features() >> extract_artist() >> load_tables() >> insert_prod() >> cleanup()
 
 # Instantiate the DAG
 dag_run = etl()
