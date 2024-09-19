@@ -1,9 +1,8 @@
 from sqlalchemy import MetaData, Table
 import pandas as pd
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import logging
 import os
 import json
@@ -25,7 +24,19 @@ def chunks(lst: List[Any], n: int) -> List[Any]:
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-def parse_datetime(datetime_string):
+def parse_datetime(datetime_string: str) -> datetime:
+    """
+    Parses a datetime string into a datetime object.
+
+    Args:
+        datetime_string (str): The datetime string to parse.
+
+    Returns:
+        datetime: A parsed datetime object.
+
+    Raises:
+        ValueError: If the datetime string does not match any of the expected formats.
+    """
     formats = [
         "%Y-%m-%dT%H:%M:%S.%fZ",  # Format with milliseconds
         "%Y-%m-%dT%H:%M:%S%z"      # Format without milliseconds
@@ -55,7 +66,7 @@ def extract_recently_played(resp: Dict[str, Any]) -> pd.DataFrame:
     tracks = []
 
     for item in resp["items"]:
-       if item is not None:
+        if item is not None:
 
             played_at = item["played_at"]
             track_id = item["track"]["id"]
@@ -93,14 +104,14 @@ def extract_recently_played(resp: Dict[str, Any]) -> pd.DataFrame:
 
 def extract_tracks(resp: Dict[str, Any]) -> pd.DataFrame:
     """
-    Extracts tracks information from the Spotify API JSON response and 
+    Extracts track information from the Spotify API JSON response and 
     saves it into a pandas DataFrame.
 
     Args:
-        resp (Dict[str, Any]): JSON response from Spotify API containing tracks information.
+        resp (Dict[str, Any]): JSON response from Spotify API containing track information.
 
     Returns:
-        pd.DataFrame: DataFrame containing tracks information.
+        pd.DataFrame: DataFrame containing track information.
     """
     tracks = []
 
@@ -109,7 +120,6 @@ def extract_tracks(resp: Dict[str, Any]) -> pd.DataFrame:
 
             track_id = item["id"]
             track_name = item["name"]
-            
             popularity = item["popularity"]
             duration_ms = item["duration_ms"]
             artist_ids = list(map(lambda a: a["id"], item["artists"]))
@@ -136,13 +146,13 @@ def extract_tracks(resp: Dict[str, Any]) -> pd.DataFrame:
 
     return pd.DataFrame(tracks)
 
-def extract_audio_features(resp: Dict[str, Any]) -> pd.DataFrame:
+def extract_audio_features(resp: List[Dict[str, Any]]) -> pd.DataFrame:
     """
     Extracts audio features information from the Spotify API JSON response and 
     saves it into a pandas DataFrame.
 
     Args:
-        resp (Dict[str, Any]): JSON response from Spotify API containing tracks audio features.
+        resp (List[Dict[str, Any]]): JSON response from Spotify API containing audio features.
 
     Returns:
         pd.DataFrame: DataFrame containing audio features information.
@@ -166,7 +176,6 @@ def extract_audio_features(resp: Dict[str, Any]) -> pd.DataFrame:
             tempo = item["tempo"]
             time_signature = item["time_signature"]
             analysis_url = item["analysis_url"]
-
 
             audio_features_element = {
                 "track_id": track_id,
@@ -227,15 +236,14 @@ def extract_artists(resp: Dict[str, Any]) -> pd.DataFrame:
 
     return pd.DataFrame(artists)
 
-
-# Get fucntions
+# Get functions
 def get_played_from_history(history_path: str) -> pd.DataFrame:
     """
-    Extracts played tracks from the spotify streaming history and saves it into
+    Extracts played tracks from the Spotify streaming history files and saves it into
     a pandas DataFrame.
 
     Args:
-        history_path str: path to the folder containing the spotify streaming history in JSON format.
+        history_path (str): Path to the folder containing the Spotify streaming history in JSON format.
 
     Returns:
         pd.DataFrame: DataFrame containing played tracks information.
@@ -265,28 +273,26 @@ def get_played_from_history(history_path: str) -> pd.DataFrame:
 
                     played_history.append(history_element)
                 else:
-                    missing_uri_count+=1
+                    missing_uri_count += 1
 
     played_history_df = pd.DataFrame(played_history)
 
     logging.info(f"Extracted {str(played_history_df.shape[0])} entries from streaming history")
-    logging.info(f"Skipped {str(missing_uri_count)} entries because of missing URIs")
+    logging.info(f"Skipped {str(missing_uri_count)} entries due to missing URIs")
 
     return played_history_df
 
-
-def get_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFrame:
+def get_recently_played(sp: spotipy.Spotify, last_played_at: Optional[int] = None) -> pd.DataFrame:
     """
     Extracts recently played tracks from the Spotify API since the given timestamp,
-    converts the data to a DataFrame, and saves it as a CSV file.
+    converts the data to a DataFrame.
 
     Args:
-        sp (spotipy.Spotify): The Spotify API client.
-        last_played_at (Optional[int]): Unix timestamp in milliseconds of the last played track. 
-                                        If None, fetches the most recent tracks.
-    
+        sp (spotipy.Spotify): Authenticated Spotify object.
+        last_played_at (Optional[int]): Unix timestamp indicating the cutoff time. Defaults to None.
+
     Returns:
-        pd.DataFrame: DataFrame containing recently played track information.
+        pd.DataFrame: DataFrame containing recently played tracks.
     """
     # Send the request for recently played tracks
     resp = sp.current_user_recently_played(limit=50, after=last_played_at)
@@ -296,23 +302,24 @@ def get_recently_played(sp, last_played_at: Optional[int] = None) -> pd.DataFram
     return df
 
 
-def get_tracks(sp, track_ids: List[str], chunksize: int=50) -> pd.DataFrame:
+def get_tracks(sp: spotipy.Spotify, track_ids: List[str], chunksize: int = 50) -> pd.DataFrame:
     """
-    Extracts track information from the Spotify API for the given list of track IDs,
-    converts the data to a DataFrame, and saves it as a CSV file.
+    Extracts track information from the Spotify API for a list of track IDs, 
+    converts the data to a pandas DataFrame.
 
     Args:
         sp (spotipy.Spotify): The Spotify API client.
         track_ids (List[str]): List of track IDs to fetch information for.
-
+        chunksize (int, optional): The number of track IDs to process per API call. Defaults to 50.
+    
     Returns:
         pd.DataFrame: DataFrame containing track information.
     """
-    logging.info(f"calling spotify api for {str(len(track_ids))} tracks")
+    logging.info(f"Calling Spotify API for {str(len(track_ids))} tracks.")
 
     df_list = []
     for id_chunk in chunks(track_ids, chunksize):
-        # Send the request for artist information
+        # Send the request for track information
         resp = sp.tracks(id_chunk)
         # Extract relevant fields from the JSON response and store them in a DataFrame
         temp_df = extract_tracks(resp)
@@ -321,50 +328,52 @@ def get_tracks(sp, track_ids: List[str], chunksize: int=50) -> pd.DataFrame:
     df = pd.concat(df_list)
     return df
 
-def get_audio_features(sp, track_ids: List[str], chunksize: int=50) -> pd.DataFrame:
+def get_audio_features(sp: spotipy.Spotify, track_ids: List[str], chunksize: int = 50) -> pd.DataFrame:
     """
-    Extracts tracks audio features from the Spotify API,
-    converts the data to a DataFrame, and saves it as a CSV file.
+    Extracts audio features for a list of track IDs from the Spotify API,
+    converts the data to a pandas DataFrame.
 
     Args:
         sp (spotipy.Spotify): The Spotify API client.
-        track_ids (List[str]): List of track IDs to fetch information for.
+        track_ids (List[str]): List of track IDs to fetch audio features for.
+        chunksize (int, optional): The number of track IDs to process per API call. Defaults to 50.
     
     Returns:
-        pd.DataFrame: DataFrame containing recently played track information.
+        pd.DataFrame: DataFrame containing audio features for the tracks.
     """
-    logging.info(f"calling spotify api for {str(len(track_ids))} tracks")
+    logging.info(f"Calling Spotify API for {str(len(track_ids))} tracks.")
 
     df_list = []
     count = 0
     for id_chunk in chunks(track_ids, chunksize):
-        # Send the request for recently played tracks
+        # Send the request for audio features
         resp = sp.audio_features(id_chunk)
         # Extract relevant fields from the JSON response and store them in a DataFrame
         temp_df = extract_audio_features(resp)
         df_list.append(temp_df)
 
-        # delay for rate limiting
-        count+=1
+        # Delay for rate limiting
+        count += 1
         if (count / 10).is_integer():
             time.sleep(5)
 
     df = pd.concat(df_list)
     return df
 
-def get_artists(sp, artist_ids: List[str], chunksize: int=50) -> pd.DataFrame:
+def get_artists(sp: spotipy.Spotify, artist_ids: List[str], chunksize: int = 50) -> pd.DataFrame:
     """
-    Extracts artist information from the Spotify API for the given list of artist IDs,
-    converts the data to a DataFrame, and saves it as a CSV file.
+    Extracts artist information for a list of artist IDs from the Spotify API,
+    converts the data to a pandas DataFrame.
 
     Args:
         sp (spotipy.Spotify): The Spotify API client.
         artist_ids (List[str]): List of artist IDs to fetch information for.
-
+        chunksize (int, optional): The number of artist IDs to process per API call. Defaults to 50.
+    
     Returns:
         pd.DataFrame: DataFrame containing artist information.
     """
-    logging.info(f"calling spotify api for {str(len(artist_ids))} artists")
+    logging.info(f"Calling Spotify API for {str(len(artist_ids))} artists.")
 
     df_list = []
     for id_chunk in chunks(artist_ids, chunksize):
@@ -377,30 +386,37 @@ def get_artists(sp, artist_ids: List[str], chunksize: int=50) -> pd.DataFrame:
     df = pd.concat(df_list)
     return df
 
-def transform_played(played: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def transform_played(played: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Transforms the recently played DataFrame by sorting, exploding, and saving it into CSV files.
+    Transforms the recently played DataFrame by sorting, exploding, and structuring it into separate 
+    DataFrames for played tracks, track information, and track-artist relationships.
 
     Args:
         played (pd.DataFrame): DataFrame containing recently played track information.
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: 
+            - DataFrame containing played track timestamps.
+            - DataFrame containing unique track information.
+            - DataFrame linking tracks with artists.
     """
-    # drop null values
+    # Drop null values
     len_unfiltered = played.shape[0]
     played = played.dropna(subset=["track_name", "popularity", "duration_ms", "album_id", "album_name", "track_uri"], how="any", axis=0)
-    logging.info(f"Removed {len_unfiltered - played.shape[0]} rows containing missings.")
+    logging.info(f"Removed {len_unfiltered - played.shape[0]} rows containing missing values.")
 
     played = played.sort_values(by="played_at")
 
-    # Explode to create track_artist DataFrame
+    # Create track-artist relationship DataFrame
     track_artist = played[["track_id", "artist_ids"]]
     track_artist = track_artist.assign(
         artist_position=track_artist['artist_ids'].apply(lambda x: list(range(len(x))))
-        )
+    )
     track_artist = track_artist.explode(["artist_ids", "artist_position"])
     track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
     track_artist = track_artist.drop_duplicates()
 
-    # Create track DataFrame
+    # Create track information DataFrame
     track = played[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
     track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
     track = track.drop_duplicates(subset=["id"])
@@ -410,14 +426,27 @@ def transform_played(played: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, 
 
     return played, track, track_artist
 
-def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame)-> tuple[pd.DataFrame, pd.DataFrame]:
-    # drop null values
+def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Cleans the track and played DataFrames by dropping rows with missing values 
+    and ensuring that the played DataFrame only contains tracks present in the track DataFrame.
+
+    Args:
+        track (pd.DataFrame): DataFrame containing track information.
+        played (pd.DataFrame): DataFrame containing played track information.
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame]: 
+            - Cleaned track DataFrame.
+            - Cleaned played DataFrame, filtered to include only tracks present in the track DataFrame.
+    """
+    # Drop null values from track DataFrame
     track_len_unfiltered = track.shape[0]
     track = track.replace("", None)
     track = track.dropna(subset=["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "track_uri"], how="any", axis=0)
-    logging.info(f"Removed {track_len_unfiltered - track.shape[0]} rows from track containing missings.")
+    logging.info(f"Removed {track_len_unfiltered - track.shape[0]} rows from track containing missing values.")
 
-    # make sure that "played" only contains ids that are in "track"
+    # Ensure "played" only contains track IDs that exist in the "track" DataFrame
     played_len_unfiltered = played.shape[0]
     played = played[played["track_id"].isin(track["track_id"])]
     logging.info(f"Removed {played_len_unfiltered - played.shape[0]} rows from played because track info is missing.")
@@ -426,43 +455,62 @@ def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame)-> tuple[pd
 
 def create_track_artist(track: pd.DataFrame) -> pd.DataFrame:
     """
-    Transforms the track DataFrame by sorting, exploding, and saving it into CSV files.
+    Transforms the track DataFrame by exploding the artist IDs into individual rows and 
+    creating a DataFrame linking tracks with their respective artists.
 
     Args:
-        played (pd.DataFrame): DataFrame containing track information.
+        track (pd.DataFrame): DataFrame containing track information.
+
+    Returns:
+        pd.DataFrame: DataFrame linking tracks with artists.
     """
-    # Explode to create track_artist DataFrame
+    # Create track-artist relationship DataFrame
     track_artist = track[["track_id", "artist_ids"]]
     track_artist = track_artist.assign(
         artist_position=track_artist['artist_ids'].apply(lambda x: list(range(len(x))))
-        )
+    )
     track_artist = track_artist.explode(["artist_ids", "artist_position"])
     track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
     track_artist = track_artist.drop_duplicates()
 
     return track_artist
 
-
 def finalize_track(track: pd.DataFrame) -> pd.DataFrame:
+    """
+    Finalizes the track DataFrame by renaming columns, removing duplicates, 
+    and structuring the track information.
 
-    # finalize track DataFrame
+    Args:
+        track (pd.DataFrame): DataFrame containing track information.
+
+    Returns:
+        pd.DataFrame: Finalized DataFrame containing unique track information.
+    """
+    # Finalize track DataFrame
     track = track[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
     track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
     track = track.drop_duplicates(subset=["id"])
+    
     return track
 
 
 def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str, prod_schema: str) -> None:
     """
-    Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
+    Loads data from a CSV file into a staging table in PostgreSQL. The function first creates a staging table
+    based on the structure of the production table, then imports the data from the CSV.
 
     Args:
         hook (PostgresHook): The PostgresHook to interact with PostgreSQL.
         table_name (str): The name of the PostgreSQL table to load data into.
         csv_path (str): The path to the CSV file containing the data.
+        staging_schema (str): The schema where the staging table is created.
+        prod_schema (str): The schema of the production table to reference for creating the staging table.
+    
+    Returns:
+        None
     """
     if os.path.exists(csv_path):
-        # Read the CSV file into a DataFrame
+        # Read the CSV file into a DataFrame to capture column names
         df = pd.read_csv(csv_path)
         cols = ", ".join(df.columns)
 
@@ -470,12 +518,12 @@ def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str, pr
 
         with hook.get_conn() as conn:
             with conn.cursor() as cursor:
-                # drop previous tables in staging
+                # Drop the existing staging table if it exists
                 cursor.execute(f"""
                     DROP TABLE IF EXISTS {staging_schema}.{table_name};
                 """)
 
-                # Create a table in staging to hold the data
+                # Create a new staging table with the same structure as the production table but no data
                 cursor.execute(f"""
                     CREATE TABLE {staging_schema}.{table_name}
                     AS SELECT {cols}
@@ -483,47 +531,50 @@ def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str, pr
                     WITH NO DATA;
                 """)
                 
-                # Copy data from the CSV file to the temporary table
+                # Copy the data from the CSV file to the staging table
                 with open(csv_path, 'r') as f:
                     cursor.copy_expert(f"""
                         COPY {staging_schema}.{table_name} ({cols})
                         FROM stdin WITH CSV HEADER DELIMITER as ','
                     """, f)
                 
+            # Commit the transaction
             conn.commit()
     else:
-        logging.info(f"{csv_path} can't be found.")
+        logging.info(f"{csv_path} cannot be found.")
 
 
 def staging_to_prod(hook, table_name: str, staging_schema: str, prod_schema: str) -> None:
     """
-    Loads the extracted Spotify data from a CSV file into the specified table in PostgreSQL.
+    Moves data from the staging table to the production table in PostgreSQL. Depending on the table, 
+    it either updates existing rows based on conflict handling or inserts new rows, ensuring data integrity.
 
     Args:
         hook (PostgresHook): The PostgresHook to interact with PostgreSQL.
-        table_name (str): The name of the PostgreSQL table to load data into.
-        csv_path (str): The path to the CSV file containing the data.
-    """
+        table_name (str): The name of the PostgreSQL table to insert data into.
+        staging_schema (str): The schema where the staging table is located.
+        prod_schema (str): The schema of the production table.
 
+    Returns:
+        None
+    """
     with hook.get_conn() as conn:
         with conn.cursor() as cursor:
-
-            # retrieve colnames
-            # Reflect the table from the metadata
+            # Reflect the production table's metadata using SQLAlchemy
             tbl_meta = Table(table_name, MetaData(), autoload_with=hook.get_sqlalchemy_engine(), schema="prod")
             cols = [col.name for col in tbl_meta.columns]
             primary_keys = [col.name for col in tbl_meta.primary_key]
 
-            logging.info(f"Inserting {table_name} to production table")
-            # Insert data from staging into the final table
+            logging.info(f"Inserting data from {staging_schema}.{table_name} to production table {prod_schema}.{table_name}")
 
+            # Handle different table types based on their data requirements
             if table_name in ["artist", "track", "audio_features"]:
-                # For these tables we update the entries after checking that the values actually changed
-                # don't update the primary key column
+                # For these tables, we update rows if they exist and differ from the new data
                 cols.remove('created')
                 cols.remove('updated')
                 update_cols = pd.Series(list(set(cols) - set(primary_keys)))
 
+                # Insert or update rows based on the primary key conflict
                 cursor.execute(f"""
                     INSERT INTO {prod_schema}.{table_name}
                     SELECT *, now() AS created
@@ -537,7 +588,7 @@ def staging_to_prod(hook, table_name: str, staging_schema: str, prod_schema: str
                 """)
 
             elif table_name in ["played", "track_artist"]:
-                # We only want unique entries in these tables, so we ignore entries that do not match the schema
+                # For these tables, we insert new unique entries and ignore conflicts
                 cursor.execute(f"""
                     INSERT INTO {prod_schema}.{table_name} ({", ".join(cols)})
                     SELECT *
@@ -546,6 +597,8 @@ def staging_to_prod(hook, table_name: str, staging_schema: str, prod_schema: str
                 """)
 
             else:
-                logging.info(f"No insert sql for table {table_name} specified")
+                # Log if there is no specific handling logic for the given table
+                logging.info(f"No insert SQL for table {table_name} specified.")
 
+        # Commit the transaction
         conn.commit()
