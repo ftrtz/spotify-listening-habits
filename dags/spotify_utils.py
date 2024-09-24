@@ -118,8 +118,8 @@ def extract_tracks(resp: Dict[str, Any]) -> pd.DataFrame:
     for item in resp["tracks"]:
         if item is not None:
 
-            track_id = item["id"]
-            track_name = item["name"]
+            id = item["id"]
+            name = item["name"]
             popularity = item["popularity"]
             duration_ms = item["duration_ms"]
             artist_ids = list(map(lambda a: a["id"], item["artists"]))
@@ -127,11 +127,11 @@ def extract_tracks(resp: Dict[str, Any]) -> pd.DataFrame:
             album_id = item["album"]["id"]
             album_name = item["album"]["name"]
             album_images = json.dumps(item["album"]["images"])
-            track_uri = item["uri"]
+            uri = item["uri"]
 
             track_element = {
-                "track_id": track_id,
-                "track_name": track_name,
+                "id": id,
+                "name": name,
                 "popularity": popularity,
                 "duration_ms": duration_ms,
                 "artist_ids": artist_ids,
@@ -139,7 +139,7 @@ def extract_tracks(resp: Dict[str, Any]) -> pd.DataFrame:
                 "album_id": album_id,
                 "album_name": album_name,
                 "album_images": album_images,
-                "track_uri": track_uri
+                "uri": uri
             }
 
             tracks.append(track_element)
@@ -301,6 +301,13 @@ def get_recently_played(sp: spotipy.Spotify, last_played_at: Optional[int] = Non
     df = extract_recently_played(resp)
     return df
 
+def get_track_from_played(played):
+    # Create track information DataFrame
+    track = played[["track_id", "track_name", "popularity", "duration_ms", "artist_ids", "artist_names", "album_id", "album_name", "album_images", "track_uri"]]
+    track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
+    track = track.drop_duplicates(subset=["id"])
+    return track
+
 
 def get_tracks(sp: spotipy.Spotify, track_ids: List[str], chunksize: int = 50) -> pd.DataFrame:
     """
@@ -386,45 +393,6 @@ def get_artists(sp: spotipy.Spotify, artist_ids: List[str], chunksize: int = 50)
     df = pd.concat(df_list)
     return df
 
-def transform_played(played: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Transforms the recently played DataFrame by sorting, exploding, and structuring it into separate 
-    DataFrames for played tracks, track information, and track-artist relationships.
-
-    Args:
-        played (pd.DataFrame): DataFrame containing recently played track information.
-
-    Returns:
-        Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: 
-            - DataFrame containing played track timestamps.
-            - DataFrame containing unique track information.
-            - DataFrame linking tracks with artists.
-    """
-    # Drop null values
-    len_unfiltered = played.shape[0]
-    played = played.dropna(subset=["track_name", "popularity", "duration_ms", "album_id", "album_name", "track_uri"], how="any", axis=0)
-    logging.info(f"Removed {len_unfiltered - played.shape[0]} rows containing missing values.")
-
-    played = played.sort_values(by="played_at")
-
-    # Create track-artist relationship DataFrame
-    track_artist = played[["track_id", "artist_ids"]]
-    track_artist = track_artist.assign(
-        artist_position=track_artist['artist_ids'].apply(lambda x: list(range(len(x))))
-    )
-    track_artist = track_artist.explode(["artist_ids", "artist_position"])
-    track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
-    track_artist = track_artist.drop_duplicates()
-
-    # Create track information DataFrame
-    track = played[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
-    track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
-    track = track.drop_duplicates(subset=["id"])
-
-    # Filter final played columns
-    played = played[["unix_timestamp", "played_at", "track_id"]]
-
-    return played, track, track_artist
 
 def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -443,13 +411,18 @@ def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame) -> Tuple[p
     # Drop null values from track DataFrame
     track_len_unfiltered = track.shape[0]
     track = track.replace("", None)
-    track = track.dropna(subset=["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "track_uri"], how="any", axis=0)
+    track = track.dropna(subset=["id", "name", "popularity", "duration_ms", "album_id", "album_name", "uri"], how="any", axis=0)
     logging.info(f"Removed {track_len_unfiltered - track.shape[0]} rows from track containing missing values.")
 
     # Ensure "played" only contains track IDs that exist in the "track" DataFrame
     played_len_unfiltered = played.shape[0]
-    played = played[played["track_id"].isin(track["track_id"])]
+    played = played[played["track_id"].isin(track["id"])]
     logging.info(f"Removed {played_len_unfiltered - played.shape[0]} rows from played because track info is missing.")
+
+    # Filter final played columns
+    played = played[["unix_timestamp", "played_at", "track_id"]]
+
+    # remove duplicate tracks in a 30 sec window from played
 
     return track, played
 
@@ -465,12 +438,12 @@ def create_track_artist(track: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: DataFrame linking tracks with artists.
     """
     # Create track-artist relationship DataFrame
-    track_artist = track[["track_id", "artist_ids"]]
+    track_artist = track[["id", "artist_ids"]]
     track_artist = track_artist.assign(
         artist_position=track_artist['artist_ids'].apply(lambda x: list(range(len(x))))
     )
     track_artist = track_artist.explode(["artist_ids", "artist_position"])
-    track_artist = track_artist.rename(columns={"artist_ids": "artist_id"})
+    track_artist = track_artist.rename(columns={"id": "track_id", "artist_ids": "artist_id"})
     track_artist = track_artist.drop_duplicates()
 
     return track_artist
@@ -487,8 +460,7 @@ def finalize_track(track: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Finalized DataFrame containing unique track information.
     """
     # Finalize track DataFrame
-    track = track[["track_id", "track_name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "track_uri"]]
-    track = track.rename(columns={"track_id": "id", "track_name": "name", "track_uri": "uri"})
+    track = track[["id", "name", "popularity", "duration_ms", "album_id", "album_name", "album_images", "uri"]]
     track = track.drop_duplicates(subset=["id"])
     
     return track

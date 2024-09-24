@@ -5,7 +5,17 @@ from airflow.models import Variable
 from datetime import datetime, timedelta
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from spotify_utils import get_recently_played, transform_played, get_artists, get_audio_features, csv_to_staging, staging_to_prod
+from spotify_utils import (
+    get_recently_played,
+    get_track_from_played,
+    clean_track_and_played,
+    create_track_artist,
+    finalize_track,
+    get_artists,
+    get_audio_features,
+    csv_to_staging,
+    staging_to_prod
+)
 import os
 import glob
 import logging
@@ -87,22 +97,50 @@ def etl():
         ))
 
         # Extract recently played tracks
-        played = get_recently_played(sp, unix_timestamp)
+        played_raw = get_recently_played(sp, unix_timestamp)
         
-        if played.shape[0] > 0:
-            logging.info(f"Retrieved {played.shape[0]} recently played tracks from Spotify.")
-            played, track, track_artist = transform_played(played)
+        if played_raw.shape[0] > 0:
+            logging.info(f"Retrieved {played_raw.shape[0]} recently played tracks from Spotify.")
 
             # Create data directory if it doesn't exist
             if not os.path.exists("dags/data"):
                 os.makedirs("dags/data")
 
             # Save DataFrames to CSV
-            track_artist.to_csv("dags/data/track_artist.csv", index=False)
-            track.to_csv("dags/data/track.csv", index=False)
-            played.to_csv("dags/data/played.csv", index=False)
+            played_raw.to_csv("dags/data/played_raw.csv", index=False)
         else:
             logging.info("No new recently played data found.")
+
+    @task()
+    def extract_track():
+
+        data_path = "dags/data/"
+        played_raw = pd.read_csv(data_path + "played_raw.csv")
+
+        track = get_track_from_played(played_raw)
+
+        track.to_csv(data_path + "track.csv", index=False)
+
+    @task()
+    def transform_track() -> None:
+        """
+        Cleans and transforms track and played data, then saves the transformed data
+        to CSV files for further processing.
+        """
+        data_path = "dags/data/"
+        track = pd.read_csv(data_path + "track.csv", converters={'artist_ids': pd.eval}) # Ensure 'artist_ids' is properly parsed as a list
+        played = pd.read_csv(data_path + "played_raw.csv")
+
+        # Clean and transform the data
+        track, played = clean_track_and_played(track, played)
+        track_artist = create_track_artist(track)
+        track = finalize_track(track) # check ob man das braucht
+
+        # Save the transformed data to CSV
+        track_artist.to_csv(data_path + "track_artist.csv", index=False)
+        track.to_csv(data_path + "track.csv", index=False)
+        played.to_csv(data_path + "played.csv", index=False)
+
 
     @task()
     def extract_artist():
@@ -214,7 +252,7 @@ def etl():
             logging.info(f"Removed temporary file: {f}")
 
     # Task dependencies to set the order of execution
-    create_db_tables >> extract_played() >> extract_audio_features() >> extract_artist() >> load_tables() >> insert_prod() >> cleanup()
+    create_db_tables >> extract_played() >> extract_track() >> transform_track() >> extract_audio_features() >> extract_artist() >> load_tables() >> insert_prod() >> cleanup()
 
 # Instantiate the DAG
 dag_run = etl()
