@@ -398,6 +398,7 @@ def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame) -> Tuple[p
     """
     Cleans the track and played DataFrames by dropping rows with missing values 
     and ensuring that the played DataFrame only contains tracks present in the track DataFrame.
+    Filters out duplicate tracks within a 30-second time window.
 
     Args:
         track (pd.DataFrame): DataFrame containing track information.
@@ -419,10 +420,13 @@ def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame) -> Tuple[p
     played = played[played["track_id"].isin(track["id"])]
     logging.info(f"Removed {played_len_unfiltered - played.shape[0]} rows from played because track info is missing.")
 
-    # Filter final played columns
+    # Select final played columns
     played = played[["unix_timestamp", "played_at", "track_id"]]
 
     # remove duplicate tracks in a 30 sec window from played
+    played["timediff"] = played.sort_values(['track_id','unix_timestamp']).groupby('track_id')['unix_timestamp'].diff()
+    to_delete = played[played['timediff'] < 30000]['unix_timestamp']
+    played = played[~played['unix_timestamp'].isin(to_delete)].drop("timediff", axis=1)
 
     return track, played
 
