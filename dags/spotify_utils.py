@@ -428,6 +428,8 @@ def clean_track_and_played(track: pd.DataFrame, played: pd.DataFrame) -> Tuple[p
     to_delete = played[played['timediff'] < 30000]['unix_timestamp']
     played = played[~played['unix_timestamp'].isin(to_delete)].drop("timediff", axis=1)
 
+    logging.info(f"Deleted {to_delete.shape[0]} tracks that were duplicate in a 30sec time window from played.")
+
     return track, played
 
 def create_track_artist(track: pd.DataFrame) -> pd.DataFrame:

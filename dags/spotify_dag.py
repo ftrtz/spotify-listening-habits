@@ -115,11 +115,16 @@ def etl():
     def extract_track():
 
         data_path = "dags/data/"
-        played_raw = pd.read_csv(data_path + "played_raw.csv")
 
-        track = get_track_from_played(played_raw)
+        if os.path.exists(data_path + "played_raw.csv"):
+            played_raw = pd.read_csv(data_path + "played_raw.csv")
 
-        track.to_csv(data_path + "track.csv", index=False)
+            track = get_track_from_played(played_raw)
+
+            track.to_csv(data_path + "track.csv", index=False)
+
+        else:
+            logging.info("No 'played_raw' CSV file found. No played track data to extract.")
 
     @task()
     def transform_track() -> None:
@@ -128,18 +133,25 @@ def etl():
         to CSV files for further processing.
         """
         data_path = "dags/data/"
-        track = pd.read_csv(data_path + "track.csv", converters={'artist_ids': pd.eval}) # Ensure 'artist_ids' is properly parsed as a list
-        played = pd.read_csv(data_path + "played_raw.csv")
 
-        # Clean and transform the data
-        track, played = clean_track_and_played(track, played)
-        track_artist = create_track_artist(track)
-        track = finalize_track(track) # check ob man das braucht
+        if os.path.exists(data_path + "track.csv"):
+            if os.path.exists(data_path + "played_raw.csv"):
+                track = pd.read_csv(data_path + "track.csv", converters={'artist_ids': pd.eval}) # Ensure 'artist_ids' is properly parsed as a list
+                played = pd.read_csv(data_path + "played_raw.csv")
 
-        # Save the transformed data to CSV
-        track_artist.to_csv(data_path + "track_artist.csv", index=False)
-        track.to_csv(data_path + "track.csv", index=False)
-        played.to_csv(data_path + "played.csv", index=False)
+                # Clean and transform the data
+                track, played = clean_track_and_played(track, played)
+                track_artist = create_track_artist(track)
+                track = finalize_track(track) # check ob man das braucht
+
+                # Save the transformed data to CSV
+                track_artist.to_csv(data_path + "track_artist.csv", index=False)
+                track.to_csv(data_path + "track.csv", index=False)
+                played.to_csv(data_path + "played.csv", index=False)
+            else:
+                logging.info("No 'played_raw' CSV file found.")
+        else:
+            logging.info("No 'track' CSV file found.")
 
 
     @task()
@@ -175,7 +187,7 @@ def etl():
             else:
                 logging.info("No artist IDs to extract.")
         else:
-            logging.info("No 'track_artist' CSV file found, cannot extract artist data.")
+            logging.info("No 'track_artist' CSV file found. No artist data to extract.")
 
     @task()
     def extract_audio_features():
@@ -210,7 +222,7 @@ def etl():
             else:
                 logging.info("No track IDs to extract audio features.")
         else:
-            logging.info("No 'track_artist' CSV file found, cannot extract audio features.")
+            logging.info("No 'track_artist' CSV file found. No tracks to extract audio features for.")
 
     @task(retries=0)
     def load_tables():
