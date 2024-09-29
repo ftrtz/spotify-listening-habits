@@ -2,6 +2,7 @@ from sqlalchemy import MetaData, Table
 import pandas as pd
 import spotipy
 from datetime import datetime
+from dateutil import parser
 from typing import Optional, List, Dict, Any, Tuple
 import logging
 import os
@@ -23,31 +24,6 @@ def chunks(lst: List[Any], n: int) -> List[Any]:
     """
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
-
-def parse_datetime(datetime_string: str) -> datetime:
-    """
-    Parses a datetime string into a datetime object.
-
-    Args:
-        datetime_string (str): The datetime string to parse.
-
-    Returns:
-        datetime: A parsed datetime object.
-
-    Raises:
-        ValueError: If the datetime string does not match any of the expected formats.
-    """
-    formats = [
-        "%Y-%m-%dT%H:%M:%S.%fZ",  # Format with milliseconds
-        "%Y-%m-%dT%H:%M:%S%z"      # Format without milliseconds
-    ]
-    
-    for fmt in formats:
-        try:
-            return datetime.strptime(datetime_string, fmt)
-        except ValueError:
-            continue
-    raise ValueError(f"time data '{datetime_string}' does not match any of the formats")
 
 # ======================== Main functions
 
@@ -81,7 +57,7 @@ def extract_recently_played(resp: Dict[str, Any]) -> pd.DataFrame:
             track_uri = item["track"]["uri"]
 
             # parse time and convert to unix timestamp
-            unix_timestamp = int(parse_datetime(played_at).timestamp() * 1000)
+            unix_timestamp = int(parser.parse(played_at).timestamp() * 1000)
 
             track_element = {
                 "unix_timestamp": unix_timestamp,
@@ -259,7 +235,7 @@ def get_played_from_history(history_path: str) -> pd.DataFrame:
             history = json.load(f)
 
             for item in history:
-                unix_timestamp = int(parse_datetime(item["ts"]).timestamp() * 1000)
+                unix_timestamp = int(parser.parse(item["ts"]).timestamp() * 1000)
                 played_at = item["ts"]
                 spotify_track_uri = item["spotify_track_uri"]
                 if spotify_track_uri and spotify_track_uri is not None:
