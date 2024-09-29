@@ -2,5 +2,8 @@
 /logs
 /plugins
 /dags/.cache
-/dags/__pycache__
+__pycache__
 /dags/data
+/upload/SpotifyExtendedStreamingHistory
+/.venv
+.env
