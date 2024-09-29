@@ -452,6 +452,9 @@ def create_track_artist(track: pd.DataFrame) -> pd.DataFrame:
     track_artist = track_artist.rename(columns={"id": "track_id", "artist_ids": "artist_id"})
     track_artist = track_artist.drop_duplicates()
 
+    # Ensure that artist_position is an integer type
+    track_artist['artist_position'] = track_artist['artist_position'].astype(int)
+
     return track_artist
 
 def finalize_track(track: pd.DataFrame) -> pd.DataFrame:
