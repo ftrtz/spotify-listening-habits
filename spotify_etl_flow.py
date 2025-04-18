@@ -1,4 +1,5 @@
 from prefect import flow, task, get_run_logger
+from prefect.blocks.system import Secret
 from prefect_sqlalchemy import SqlAlchemyConnector
 from spotipy.oauth2 import SpotifyOAuth
 import spotipy
@@ -6,6 +7,7 @@ import pandas as pd
 import os
 import glob
 from jinja2 import Template
+import json
 
 from utils.spotify_utils import (
     get_recently_played,
@@ -18,14 +20,15 @@ from utils.spotify_utils import (
     staging_to_prod
 )
 
-# TODO:
-# - use block secrets for spotipy vars
-# - use a deployment (schemas as deployment params?)
-
 DATA_PATH = "data"
 
 PROD_SCHEMA="prod"
 STAGING_SCHEMA="staging"
+
+spotipy_block = Secret.load("spotipy")
+spotify_access_block = Secret.load("spotify-access-token")
+with open(".cache", "w") as f:
+    json.dump(spotify_access_block.get(), f)
 
 @task
 def create_db_tables():
@@ -45,9 +48,9 @@ def extract_played():
         os.makedirs(DATA_PATH)
 
     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-        client_id=os.getenv("SPOTIPY_CLIENT_ID"),
-        client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
-        redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI"),
+        client_id=spotipy_block.get()["SPOTIPY_CLIENT_ID"],
+        client_secret=spotipy_block.get()["SPOTIPY_CLIENT_SECRET"],
+        redirect_uri=spotipy_block.get()["SPOTIPY_REDIRECT_URI"],
         scope="user-read-recently-played",
         cache_path=".cache"
     ))
@@ -102,9 +105,9 @@ def extract_artist():
 
         if artist_ids:
             sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-                client_id=os.getenv("SPOTIPY_CLIENT_ID"),
-                client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
-                redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI"),
+                client_id=spotipy_block.get()["SPOTIPY_CLIENT_ID"],
+                client_secret=spotipy_block.get()["SPOTIPY_CLIENT_SECRET"],
+                redirect_uri=spotipy_block.get()["SPOTIPY_REDIRECT_URI"],
                 scope="user-read-recently-played",
                 cache_path=".cache"
             ))
