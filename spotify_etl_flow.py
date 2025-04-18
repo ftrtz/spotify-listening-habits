@@ -1,6 +1,5 @@
 from prefect import flow, task, get_run_logger
 from prefect_sqlalchemy import SqlAlchemyConnector
-from datetime import timedelta
 from spotipy.oauth2 import SpotifyOAuth
 import spotipy
 import pandas as pd
@@ -21,10 +20,7 @@ from utils.spotify_utils import (
 
 # TODO:
 # - use block secrets for spotipy vars
-# - change utils for stage and load
 # - use a deployment (schemas as deployment params?)
-
-
 
 DATA_PATH = "data"
 
@@ -129,9 +125,9 @@ def load_tables():
 
     with SqlAlchemyConnector.load("spotify-postgresql") as db:
         engine = db.get_engine()
+        sql_path = "sql/load_tables.sql"
         for tbl in tbl_names:
             csv_path = f"{DATA_PATH}/{tbl}.csv"
-            sql_path = "sql/load_tables.sql"
             if os.path.exists(csv_path):
                 csv_to_staging(engine, tbl, csv_path, sql_path, staging_schema=STAGING_SCHEMA, prod_schema=PROD_SCHEMA)
                 logger.info(f"Loaded {tbl} into staging.")
@@ -142,12 +138,25 @@ def load_tables():
 def insert_prod():
     logger = get_run_logger()
     tbl_names = ["track", "played", "artist", "track_artist"]
+    sql_path = "sql/staging_to_prod.sql"
+    with SqlAlchemyConnector.load("spotify-postgresql") as db:
+        engine = db.get_engine()
+        for tbl in tbl_names:
+            staging_to_prod(engine, tbl, sql_path, staging_schema=STAGING_SCHEMA, prod_schema=PROD_SCHEMA)
+            logger.info(f"Inserted {tbl} from staging to prod.")
+
+
+@task
+def legacy_insert_prod():
+    logger = get_run_logger()
+    tbl_names = ["track", "played", "artist", "track_artist"]
 
     with SqlAlchemyConnector.load("spotify-postgresql") as db:
         engine = db.get_engine()
         for tbl in tbl_names:
-            staging_to_prod(engine, tbl, staging_schema=STAGING_SCHEMA, prod_schema=PROD_SCHEMA)
+            legacy_staging_to_prod(engine, tbl, staging_schema=STAGING_SCHEMA, prod_schema=PROD_SCHEMA)
             logger.info(f"Inserted {tbl} from staging to prod.")
+
 
 @task
 def cleanup():

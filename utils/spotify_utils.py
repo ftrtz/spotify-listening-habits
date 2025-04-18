@@ -481,14 +481,45 @@ def csv_to_staging(engine: Engine, table_name: str, csv_path: str, sql_path: str
         with open(sql_path, "r") as sql_file:
             with open(csv_path) as csv_file:
                 sql = Template(sql_file.read()).render(staging_schema=staging_schema, prod_schema=prod_schema, table_name=table_name, cols=cols)
-                print(sql)
                 cur.copy_expert(sql, csv_file)
                 con.commit()
     else:
         logging.info(f"{csv_path} cannot be found.")
 
 
-def staging_to_prod(engine, table_name: str, staging_schema: str, prod_schema: str) -> None:
+def staging_to_prod(engine, table_name: str, sql_path: str, staging_schema: str, prod_schema: str) -> None:
+    """
+    Moves data from the staging table to the production table in PostgreSQL. Depending on the table, 
+    it either updates existing rows based on conflict handling or inserts new rows, ensuring data integrity.
+
+    Args:
+        hook (PostgresHook): The PostgresHook to interact with PostgreSQL.
+        table_name (str): The name of the PostgreSQL table to insert data into.
+        staging_schema (str): The schema where the staging table is located.
+        prod_schema (str): The schema of the production table.
+
+    Returns:
+        None
+    """
+
+    tbl_meta = Table(table_name, MetaData(), autoload_with=engine, schema=prod_schema)
+    all_cols = [col.name for col in tbl_meta.columns]
+    primary_keys = [col.name for col in tbl_meta.primary_key]
+    update_cols = [col for col in all_cols if col not in primary_keys and col not in ("created", "updated")]
+    with engine.begin() as con:
+        with open(sql_path, "r") as sql_file:
+            sql = Template(sql_file.read()).render(
+                staging_schema=staging_schema,
+                prod_schema=prod_schema,
+                table_name=table_name,
+                primary_keys=primary_keys,
+                update_cols=update_cols,
+                )
+            con.execute(text(sql))
+
+
+# REMOVE THIS BEFORE COMITTING
+def legacy_staging_to_prod(engine, table_name: str, staging_schema: str, prod_schema: str) -> None:
     """
     Moves data from the staging table to the production table in PostgreSQL. Depending on the table, 
     it either updates existing rows based on conflict handling or inserts new rows, ensuring data integrity.
@@ -530,6 +561,7 @@ def staging_to_prod(engine, table_name: str, staging_schema: str, prod_schema: s
                     IS DISTINCT FROM
                     ({", ".join("excluded." + update_cols)});
             """)
+            print(sql)
             con.execute(sql)
 
         elif table_name in ["played", "track_artist"]:
@@ -540,6 +572,7 @@ def staging_to_prod(engine, table_name: str, staging_schema: str, prod_schema: s
                 FROM {staging_schema}.{table_name}
                 ON CONFLICT DO NOTHING;
             """)
+            print(sql)
             con.execute(sql)
 
         else:
