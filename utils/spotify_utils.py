@@ -481,14 +481,13 @@ def csv_to_staging(engine: Engine, table_name: str, csv_path: str, sql_path: str
         with open(sql_path, "r") as sql_file:
             with open(csv_path) as csv_file:
                 sql = Template(sql_file.read()).render(staging_schema=staging_schema, prod_schema=prod_schema, table_name=table_name, cols=cols)
-                print(sql)
                 cur.copy_expert(sql, csv_file)
                 con.commit()
     else:
         logging.info(f"{csv_path} cannot be found.")
 
 
-def staging_to_prod(engine, table_name: str, staging_schema: str, prod_schema: str) -> None:
+def staging_to_prod(engine, table_name: str, sql_path: str, staging_schema: str, prod_schema: str) -> None:
     """
     Moves data from the staging table to the production table in PostgreSQL. Depending on the table, 
     it either updates existing rows based on conflict handling or inserts new rows, ensuring data integrity.
@@ -503,45 +502,17 @@ def staging_to_prod(engine, table_name: str, staging_schema: str, prod_schema: s
         None
     """
 
+    tbl_meta = Table(table_name, MetaData(), autoload_with=engine, schema=prod_schema)
+    all_cols = [col.name for col in tbl_meta.columns]
+    primary_keys = [col.name for col in tbl_meta.primary_key]
+    update_cols = [col for col in all_cols if col not in primary_keys and col not in ("created", "updated")]
     with engine.begin() as con:
-        # Reflect the production table's metadata using SQLAlchemy
-        tbl_meta = Table(table_name, MetaData(), autoload_with=engine, schema=prod_schema)
-        cols = [col.name for col in tbl_meta.columns]
-        primary_keys = [col.name for col in tbl_meta.primary_key]
-
-        logging.info(f"Inserting data from {staging_schema}.{table_name} to production table {prod_schema}.{table_name}")
-
-        # Handle different table types based on their data requirements
-        if table_name in ["artist", "track"]:
-            # For these tables, we update rows if they exist and differ from the new data
-            cols.remove('created')
-            cols.remove('updated')
-            update_cols = pd.Series(list(set(cols) - set(primary_keys)))
-
-            # Insert or update rows based on the primary key conflict
-            sql = text(f"""
-                INSERT INTO {prod_schema}.{table_name}
-                SELECT *, now() AS created
-                FROM {staging_schema}.{table_name}
-                ON CONFLICT ({", ".join(primary_keys)}) DO UPDATE SET
-                    {", ".join(update_cols + " = excluded." + update_cols) + ", updated = now()"}
-                WHERE
-                    ({", ".join(table_name + "." + update_cols)})
-                    IS DISTINCT FROM
-                    ({", ".join("excluded." + update_cols)});
-            """)
-            con.execute(sql)
-
-        elif table_name in ["played", "track_artist"]:
-            # For these tables, we insert new unique entries and ignore conflicts
-            sql = text(f"""
-                INSERT INTO {prod_schema}.{table_name} ({", ".join(cols)})
-                SELECT *
-                FROM {staging_schema}.{table_name}
-                ON CONFLICT DO NOTHING;
-            """)
-            con.execute(sql)
-
-        else:
-            # Log if there is no specific handling logic for the given table
-            logging.info(f"No insert SQL for table {table_name} specified.")
+        with open(sql_path, "r") as sql_file:
+            sql = Template(sql_file.read()).render(
+                staging_schema=staging_schema,
+                prod_schema=prod_schema,
+                table_name=table_name,
+                primary_keys=primary_keys,
+                update_cols=update_cols,
+                )
+            con.execute(text(sql))

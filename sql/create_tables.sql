@@ -18,6 +18,27 @@ CREATE TABLE IF NOT EXISTS {{ prod_schema }}.track (
     updated TIMESTAMP WITH TIME ZONE
     );
 
+
+-- create audio_features table
+CREATE TABLE IF NOT EXISTS {{ prod_schema }}.audio_features (
+    track_id VARCHAR PRIMARY KEY REFERENCES {{ prod_schema }}.track(id),
+    danceability FLOAT,
+    energy FLOAT,
+    key INTEGER,
+    loudness FLOAT,
+    mode INTEGER,
+    speechiness FLOAT,
+    acousticness FLOAT,
+    instrumentalness FLOAT,
+    liveness FLOAT,
+    valence FLOAT,
+    tempo FLOAT,
+    time_signature INTEGER,
+    analysis_url VARCHAR,
+    created TIMESTAMP WITH TIME ZONE,
+    updated TIMESTAMP WITH TIME ZONE
+    );
+
 -- create artist table
 CREATE TABLE IF NOT EXISTS {{ prod_schema }}.artist (
     id VARCHAR NOT NULL PRIMARY KEY,
