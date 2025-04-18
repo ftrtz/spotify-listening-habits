@@ -1,4 +1,4 @@
-from sqlalchemy import MetaData, Table
+from sqlalchemy import MetaData, Table, Engine, text
 import pandas as pd
 import spotipy
 from datetime import datetime
@@ -9,6 +9,7 @@ import os
 import json
 import glob
 import time
+from jinja2 import Template
 
 # Helper functions
 def chunks(lst: List[Any], n: int) -> List[Any]:
@@ -451,7 +452,7 @@ def finalize_track(track: pd.DataFrame) -> pd.DataFrame:
     return track
 
 
-def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str, prod_schema: str) -> None:
+def csv_to_staging(engine: Engine, table_name: str, csv_path: str, sql_path: str, staging_schema: str, prod_schema: str) -> None:
     """
     Loads data from a CSV file into a staging table in PostgreSQL. The function first creates a staging table
     based on the structure of the production table, then imports the data from the CSV.
@@ -466,6 +467,7 @@ def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str, pr
     Returns:
         None
     """
+
     if os.path.exists(csv_path):
         # Read the CSV file into a DataFrame to capture column names
         df = pd.read_csv(csv_path)
@@ -473,35 +475,20 @@ def csv_to_staging(hook, table_name: str, csv_path: str, staging_schema: str, pr
 
         logging.info(f"Pushing {table_name} ({df.shape[0]} rows) to staging DB.")
 
-        with hook.get_conn() as conn:
-            with conn.cursor() as cursor:
-                # Drop the existing staging table if it exists
-                cursor.execute(f"""
-                    DROP TABLE IF EXISTS {staging_schema}.{table_name};
-                """)
-
-                # Create a new staging table with the same structure as the production table but no data
-                cursor.execute(f"""
-                    CREATE TABLE {staging_schema}.{table_name}
-                    AS SELECT {cols}
-                    FROM {prod_schema}.{table_name}
-                    WITH NO DATA;
-                """)
-                
-                # Copy the data from the CSV file to the staging table
-                with open(csv_path, 'r') as f:
-                    cursor.copy_expert(f"""
-                        COPY {staging_schema}.{table_name} ({cols})
-                        FROM stdin WITH CSV HEADER DELIMITER as ','
-                    """, f)
-                
-            # Commit the transaction
-            conn.commit()
+        # get psycopg2 cursor to use copy_expert()
+        con = engine.raw_connection()
+        cur = con.cursor()
+        with open(sql_path, "r") as sql_file:
+            with open(csv_path) as csv_file:
+                sql = Template(sql_file.read()).render(staging_schema=staging_schema, prod_schema=prod_schema, table_name=table_name, cols=cols)
+                print(sql)
+                cur.copy_expert(sql, csv_file)
+                con.commit()
     else:
         logging.info(f"{csv_path} cannot be found.")
 
 
-def staging_to_prod(hook, table_name: str, staging_schema: str, prod_schema: str) -> None:
+def staging_to_prod(engine, table_name: str, staging_schema: str, prod_schema: str) -> None:
     """
     Moves data from the staging table to the production table in PostgreSQL. Depending on the table, 
     it either updates existing rows based on conflict handling or inserts new rows, ensuring data integrity.
@@ -515,47 +502,46 @@ def staging_to_prod(hook, table_name: str, staging_schema: str, prod_schema: str
     Returns:
         None
     """
-    with hook.get_conn() as conn:
-        with conn.cursor() as cursor:
-            # Reflect the production table's metadata using SQLAlchemy
-            tbl_meta = Table(table_name, MetaData(), autoload_with=hook.get_sqlalchemy_engine(), schema="prod")
-            cols = [col.name for col in tbl_meta.columns]
-            primary_keys = [col.name for col in tbl_meta.primary_key]
 
-            logging.info(f"Inserting data from {staging_schema}.{table_name} to production table {prod_schema}.{table_name}")
+    with engine.begin() as con:
+        # Reflect the production table's metadata using SQLAlchemy
+        tbl_meta = Table(table_name, MetaData(), autoload_with=engine, schema=prod_schema)
+        cols = [col.name for col in tbl_meta.columns]
+        primary_keys = [col.name for col in tbl_meta.primary_key]
 
-            # Handle different table types based on their data requirements
-            if table_name in ["artist", "track", "audio_features"]:
-                # For these tables, we update rows if they exist and differ from the new data
-                cols.remove('created')
-                cols.remove('updated')
-                update_cols = pd.Series(list(set(cols) - set(primary_keys)))
+        logging.info(f"Inserting data from {staging_schema}.{table_name} to production table {prod_schema}.{table_name}")
 
-                # Insert or update rows based on the primary key conflict
-                cursor.execute(f"""
-                    INSERT INTO {prod_schema}.{table_name}
-                    SELECT *, now() AS created
-                    FROM {staging_schema}.{table_name}
-                    ON CONFLICT ({", ".join(primary_keys)}) DO UPDATE SET
-                        {", ".join(update_cols + " = excluded." + update_cols) + ", updated = now()"}
-                    WHERE
-                        ({", ".join(table_name + "." + update_cols)})
-                        IS DISTINCT FROM
-                        ({", ".join("excluded." + update_cols)});
-                """)
+        # Handle different table types based on their data requirements
+        if table_name in ["artist", "track"]:
+            # For these tables, we update rows if they exist and differ from the new data
+            cols.remove('created')
+            cols.remove('updated')
+            update_cols = pd.Series(list(set(cols) - set(primary_keys)))
 
-            elif table_name in ["played", "track_artist"]:
-                # For these tables, we insert new unique entries and ignore conflicts
-                cursor.execute(f"""
-                    INSERT INTO {prod_schema}.{table_name} ({", ".join(cols)})
-                    SELECT *
-                    FROM {staging_schema}.{table_name}
-                    ON CONFLICT DO NOTHING;
-                """)
+            # Insert or update rows based on the primary key conflict
+            sql = text(f"""
+                INSERT INTO {prod_schema}.{table_name}
+                SELECT *, now() AS created
+                FROM {staging_schema}.{table_name}
+                ON CONFLICT ({", ".join(primary_keys)}) DO UPDATE SET
+                    {", ".join(update_cols + " = excluded." + update_cols) + ", updated = now()"}
+                WHERE
+                    ({", ".join(table_name + "." + update_cols)})
+                    IS DISTINCT FROM
+                    ({", ".join("excluded." + update_cols)});
+            """)
+            con.execute(sql)
 
-            else:
-                # Log if there is no specific handling logic for the given table
-                logging.info(f"No insert SQL for table {table_name} specified.")
+        elif table_name in ["played", "track_artist"]:
+            # For these tables, we insert new unique entries and ignore conflicts
+            sql = text(f"""
+                INSERT INTO {prod_schema}.{table_name} ({", ".join(cols)})
+                SELECT *
+                FROM {staging_schema}.{table_name}
+                ON CONFLICT DO NOTHING;
+            """)
+            con.execute(sql)
 
-        # Commit the transaction
-        conn.commit()
+        else:
+            # Log if there is no specific handling logic for the given table
+            logging.info(f"No insert SQL for table {table_name} specified.")

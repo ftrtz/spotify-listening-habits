@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 import json
-from dags.spotify_utils import create_track_artist
+from utils.spotify_utils import create_track_artist
 
 def test_create_track_artist():
     # Mock DataFrame similar to the track DataFrame

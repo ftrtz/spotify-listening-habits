@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from dags.spotify_utils import extract_audio_features
+from utils.spotify_utils import extract_audio_features
 
 def test_extract_audio_features():
     # Mock JSON response similar to the one returned by the Spotify API

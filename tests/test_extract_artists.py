@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 import json
-from dags.spotify_utils import extract_artists
+from utils.spotify_utils import extract_artists
 
 def test_extract_artists():
     # Mock JSON response similar to the one returned by the Spotify API

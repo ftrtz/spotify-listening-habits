@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import json
 from datetime import datetime
-from dags.spotify_utils import extract_recently_played
+from utils.spotify_utils import extract_recently_played
 
 def test_extract_recently_played():
     # Mock JSON response similar to the one returned by the Spotify API
