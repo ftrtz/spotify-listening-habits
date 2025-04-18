@@ -5,14 +5,13 @@ from airflow.models import Variable
 from datetime import datetime, timedelta
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from spotify_utils import (
+from utils.spotify_utils import (
     get_recently_played,
     get_track_from_played,
     clean_track_and_played,
     create_track_artist,
     finalize_track,
     get_artists,
-    get_audio_features,
     csv_to_staging,
     staging_to_prod
 )
@@ -189,41 +188,6 @@ def etl():
         else:
             logging.info("No 'track_artist' CSV file found. No artist data to extract.")
 
-    @task()
-    def extract_audio_features():
-        """
-        Extracts audio features for the recently played tracks from the Spotify API.
-        
-        Reads track IDs from the 'track_artist' CSV file and fetches audio features for those tracks.
-        Saves the audio features to a CSV file for further processing.
-        """
-        csv_path = "dags/data/track_artist.csv"
-        
-        if os.path.exists(csv_path):
-            track_artist = pd.read_csv(csv_path)
-            track_ids = list(track_artist["track_id"].unique())
-
-            if track_ids:
-                # Initialize Spotify API client
-                sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-                    client_id=Variable.get("SPOTIPY_CLIENT_ID"),
-                    client_secret=Variable.get("SPOTIPY_CLIENT_SECRET"),
-                    redirect_uri=Variable.get("SPOTIPY_REDIRECT_URI"),
-                    cache_path="dags/.cache"
-                ))
-                # Extract audio features from the API
-                audio_features = get_audio_features(sp, track_ids, 50)
-
-                if audio_features.shape[0] > 0:
-                    audio_features.to_csv("dags/data/audio_features.csv", index=False)
-                    logging.info(f"Retrieved {audio_features.shape[0]} audio features from Spotify.")
-                else:
-                    logging.info("No audio features data found.")
-            else:
-                logging.info("No track IDs to extract audio features.")
-        else:
-            logging.info("No 'track_artist' CSV file found. No tracks to extract audio features for.")
-
     @task(retries=0)
     def load_tables():
         """
@@ -232,7 +196,7 @@ def etl():
         The data is first loaded into staging tables and then transferred to the production schema.
         """
         pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
-        tbl_names = ["track", "audio_features", "played", "artist", "track_artist"]
+        tbl_names = ["track", "played", "artist", "track_artist"]
 
         for tbl_name in tbl_names:
             csv_to_staging(pg_hook, tbl_name, f"dags/data/{tbl_name}.csv", staging_schema="staging", prod_schema=Variable.get("PROD_SCHEMA"))
@@ -246,7 +210,7 @@ def etl():
         Handles conflicts by upserting (inserting or updating) the data into the production schema.
         """
         pg_hook = PostgresHook(postgres_conn_id="spotify_postgres")
-        tbl_names = ["track", "audio_features", "played", "artist", "track_artist"]
+        tbl_names = ["track", "played", "artist", "track_artist"]
 
         for tbl_name in tbl_names:
             staging_to_prod(pg_hook, tbl_name, staging_schema="staging", prod_schema=Variable.get("PROD_SCHEMA"))
@@ -264,7 +228,7 @@ def etl():
             logging.info(f"Removed temporary file: {f}")
 
     # Task dependencies to set the order of execution
-    create_db_tables >> extract_played() >> extract_track() >> transform_track() >> extract_audio_features() >> extract_artist() >> load_tables() >> insert_prod() >> cleanup()
+    create_db_tables >> extract_played() >> extract_track() >> transform_track() >> extract_artist() >> load_tables() >> insert_prod() >> cleanup()
 
 # Instantiate the DAG
 dag_run = etl()

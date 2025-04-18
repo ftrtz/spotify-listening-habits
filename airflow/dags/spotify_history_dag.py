@@ -5,7 +5,7 @@ from airflow.models import Variable
 from datetime import datetime, timedelta
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from spotify_utils import get_played_from_history, get_tracks, clean_track_and_played, create_track_artist, finalize_track, get_artists, get_audio_features, csv_to_staging, staging_to_prod
+from utils.spotify_utils import get_played_from_history, get_tracks, clean_track_and_played, create_track_artist, finalize_track, get_artists, get_audio_features, csv_to_staging, staging_to_prod
 import os
 import glob
 import logging
