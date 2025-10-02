@@ -1,16 +1,17 @@
+from pathlib import Path
 from prefect import flow, task
 from prefect_sqlalchemy import SqlAlchemyConnector
 from jinja2 import Template
 
+SQL_PATH = Path("src/analytics/sql")
 PROD_SCHEMA="prod"
 ANALYTICS_SCHEMA="stats"
-
 
 
 @task
 def reset_stats_tables():
     with SqlAlchemyConnector.load("spotify-postgresql") as db:
-        with open("sql/reset_stats_tables.sql", "r") as file:
+        with open(SQL_PATH / "reset_stats_tables.sql", "r") as file:
             sql = Template(file.read()).render(prod_schema=PROD_SCHEMA, analytics_schema=ANALYTICS_SCHEMA)
             db.execute(sql)
 
@@ -18,7 +19,7 @@ def reset_stats_tables():
 @task
 def calc_artist_monthly():
     with SqlAlchemyConnector.load("spotify-postgresql") as db:
-        with open("sql/calc_artist_monthly.sql", "r") as file:
+        with open( SQL_PATH / "calc_artist_monthly.sql", "r") as file:
             sql = Template(file.read()).render(prod_schema=PROD_SCHEMA, analytics_schema=ANALYTICS_SCHEMA)
             db.execute(sql)
 
