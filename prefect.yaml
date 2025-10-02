@@ -16,10 +16,11 @@ push: null
 pull:
 - prefect.deployments.steps.git_clone:
     repository: https://github.com/ftrtz/spotify-listening-habits
-    branch: prefect-migration
+    branch: analytics
 
 # the deployments section allows you to provide configuration for deploying flows
 deployments:
+
 - name: spotify-etl
   version: null
   tags: []
@@ -33,6 +34,23 @@ deployments:
     job_variables: {}
   schedules:
   - cron: 0 * * * *
+    timezone: CET
+    day_or: true
+    active: true
+
+- name: analytics-flow
+  version: null
+  tags: []
+  concurrency_limit: null
+  description: null
+  entrypoint: analytics_flow.py:analytics_flow
+  parameters: {}
+  work_pool:
+    name: dongbin-work-pool
+    work_queue_name: null
+    job_variables: {}
+  schedules:
+  - cron: 10 * * * *
     timezone: CET
     day_or: true
     active: true
