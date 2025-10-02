@@ -19,7 +19,7 @@ calc as (
 		year_played,
 		month_played,
 		artist_id,
-		sum(duration_ms) as ms_listened
+		sum(duration_ms) / 1000 as sec_listened
 	from played_artists
 	group by
 		year_played,

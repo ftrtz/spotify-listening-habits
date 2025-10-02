@@ -8,6 +8,5 @@ create table if not exists {{ analytics_schema }}.artists_listened_monthly (
     year_played int not null,
     month_played int not null,
     artist_id VARCHAR not null references {{ prod_schema }}.artist(id),
-    ms_listened VARCHAR not null
-    
+    sec_listened int not null
 );
