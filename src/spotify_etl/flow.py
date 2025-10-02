@@ -9,7 +9,7 @@ import glob
 from jinja2 import Template
 import json
 
-from utils.spotify_utils import (
+from src.spotify_etl.utils import (
     get_recently_played,
     get_track_from_played,
     clean_track_and_played,
@@ -20,20 +20,20 @@ from utils.spotify_utils import (
     staging_to_prod
 )
 
-DATA_PATH = "data"
+DATA_PATH = "src/spotify_etl/data"
 
 PROD_SCHEMA="prod"
 STAGING_SCHEMA="staging"
 
 spotipy_block = Secret.load("spotipy")
 spotify_access_block = Secret.load("spotify-access-token")
-with open(".cache", "w") as f:
+with open("src/spotify_etl/.cache", "w") as f:
     json.dump(spotify_access_block.get(), f)
 
 @task
 def create_db_tables():
     with SqlAlchemyConnector.load("spotify-postgresql") as db:
-        with open("sql/create_tables.sql", "r") as file:
+        with open("src/spotify_etl/sql/create_tables.sql", "r") as file:
             sql = Template(file.read()).render(prod_schema=PROD_SCHEMA, staging_schema=STAGING_SCHEMA)
             db.execute(sql)
 @task
@@ -52,7 +52,7 @@ def extract_played():
         client_secret=spotipy_block.get()["SPOTIPY_CLIENT_SECRET"],
         redirect_uri=spotipy_block.get()["SPOTIPY_REDIRECT_URI"],
         scope="user-read-recently-played",
-        cache_path=".cache"
+        cache_path="src/spotify_etl/.cache"
     ))
 
     played_raw = get_recently_played(sp, unix_timestamp)
@@ -109,7 +109,7 @@ def extract_artist():
                 client_secret=spotipy_block.get()["SPOTIPY_CLIENT_SECRET"],
                 redirect_uri=spotipy_block.get()["SPOTIPY_REDIRECT_URI"],
                 scope="user-read-recently-played",
-                cache_path=".cache"
+                cache_path="src/spotify_etl/.cache"
             ))
 
             artist = get_artists(sp, artist_ids, 50)
@@ -128,7 +128,7 @@ def load_tables():
 
     with SqlAlchemyConnector.load("spotify-postgresql") as db:
         engine = db.get_engine()
-        sql_path = "sql/load_tables.sql"
+        sql_path = "src/spotify_etl/sql/load_tables.sql"
         for tbl in tbl_names:
             csv_path = f"{DATA_PATH}/{tbl}.csv"
             if os.path.exists(csv_path):
@@ -141,7 +141,7 @@ def load_tables():
 def insert_prod():
     logger = get_run_logger()
     tbl_names = ["track", "played", "artist", "track_artist"]
-    sql_path = "sql/staging_to_prod.sql"
+    sql_path = "src/spotify_etl/sql/staging_to_prod.sql"
     with SqlAlchemyConnector.load("spotify-postgresql") as db:
         engine = db.get_engine()
         for tbl in tbl_names:
