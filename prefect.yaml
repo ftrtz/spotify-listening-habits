@@ -49,8 +49,3 @@ deployments:
     name: dongbin-work-pool
     work_queue_name: null
     job_variables: {}
-  schedules:
-  - cron: 10 * * * *
-    timezone: CET
-    day_or: true
-    active: true

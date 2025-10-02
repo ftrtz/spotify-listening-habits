@@ -1,4 +1,4 @@
-create schema if not exists {{ analytics_schema }}
+create schema if not exists {{ analytics_schema }};
 
 -- create artists_listened_monthly table
 drop table if exists {{ analytics_schema }}.artists_listened_monthly;
