@@ -4,6 +4,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import os
 import uvicorn
+from dotenv import load_dotenv
+from datetime import datetime
+from typing import Annotated
+
+load_dotenv()
 
 app = FastAPI(title="Spotify Listening Stats API")
 
@@ -16,8 +21,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @app.get("/top-artist")
 def get_top_artist(
-    year: int = Query(..., description="Year of interest (e.g. 2023)"),
-    month: int = Query(..., description="Month of interest (1-12)")
+    year: Annotated[int, Query(description="Year of interest (e.g. 2023)")] = datetime.now().year,
+    month: Annotated[int, Query(description="Month of interest (1-12)")] = datetime.now().month,
 ):
     """
     Returns the most listened artist for a given year and month
