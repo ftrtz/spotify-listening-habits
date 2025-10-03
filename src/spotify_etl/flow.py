@@ -205,7 +205,7 @@ def cleanup():
 # Flow
 # ----------------------------------------------------------------------
 
-@flow(name="Spotify ETL")
+@flow()
 def spotify_etl():
     create_db_tables()
     extract_played()

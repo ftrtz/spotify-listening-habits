@@ -26,7 +26,7 @@ deployments:
   tags: []
   concurrency_limit: null
   description: null
-  entrypoint: spotify_etl_flow.py:spotify_etl
+  entrypoint: src/spotify_etl/flow.py:spotify_etl
   parameters: {}
   work_pool:
     name: dongbin-work-pool
@@ -43,7 +43,7 @@ deployments:
   tags: []
   concurrency_limit: null
   description: null
-  entrypoint: analytics_flow.py:analytics_flow
+  entrypoint: src/analytics/flow.py:analytics_flow
   parameters: {}
   work_pool:
     name: dongbin-work-pool
