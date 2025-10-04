@@ -1,7 +1,6 @@
-import pytest
 import pandas as pd
 import json
-from utils.spotify_utils import get_track_from_played
+from src.spotify_etl.utils import get_track_from_played
 
 def test_get_track_from_played():
     # Mock DataFrame similar to the played tracks DataFrame

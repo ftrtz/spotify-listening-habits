@@ -1,7 +1,5 @@
-import pytest
 import pandas as pd
-
-from utils.spotify_utils import clean_track_and_played
+from src.spotify_etl.utils import clean_track_and_played
 
 def test_clean_track_and_played():
     # Create sample data for the track DataFrame
