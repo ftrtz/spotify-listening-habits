@@ -7,6 +7,7 @@ SQL_PATH = Path("src/analytics/sql")
 PROD_SCHEMA="prod"
 ANALYTICS_SCHEMA="stats"
 
+# Currently this flow recalculates all stats in each run (takes ~1 sec) - in the future we might want to do incremental updates
 
 @task
 def reset_stats_tables():

@@ -22,35 +22,53 @@ G --> H[cleanup];
 
 ## Prerequisites 
 - Spotify Account
-- A running PostgreSQL database named *spotify*
+- PostgreSQL database
 
-## Spotify API
-To authorize with the Spotify API needs some preparations
-1. Create an app in the Spotify Developers Dashboard ([spotify docs](https://developer.spotify.com/documentation/web-api/concepts/apps)) to retrieve your *Client ID* and *Client Secret* and set a *Redirect URI*
-2. Assign the information to the environment variables *SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET, SPOTIPY_REDIRECT_URI* in ```.env``` 
-3. Run ```token_init.py``` and follow the instructions. This will create an access token stored in ```dags/.cache```
+## Setup & Spotify API Integration
 
-## Prefect Setup
-You can run the ETL flow locally or deploy it via Prefect Cloud / Prefect Server.
+To get started, follow these steps in order:
 
-1. Install dependencies from `pyproject.toml`
-```bash
-uv sync
-```
+1. **Install dependencies**  
+   Install all required packages from `pyproject.toml`:
+   ```bash
+   uv sync
+   ```
 
-2. Prepare Variables
+2. **Register a Spotify Developer App**  
+   - Go to the [Spotify Developers Dashboard](https://developer.spotify.com/documentation/web-api/concepts/apps).
+   - Create an app to retrieve your *Client ID*, *Client Secret*, and set a *Redirect URI*.
 
-When you run Prefect cloud or self-hosted, specify the Variables via Blocks in the webui:
-- spotify-postgresql (SQLAlchemy Connector): The connection to the spotify DB
-- spotify-access-token (Secret): The cached token value
-- spotipy (Secret, json format): SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET, SPOTIPY_REDIRECT_URI
+3. **Start Prefect Server (for local development)**  
+   In a new terminal, start the Prefect server:
+   ```bash
+   prefect server start
+   ```
+   Update the prefect server url in `pyproject.toml` under `[tool.prefect]`
 
-When you run locally you have to create these blocks locally first (refer to the prefect [wiki](https://docs.prefect.io/v3/concepts/blocks#blocks))
+4. **Set Up Prefect Blocks for Credentials and Connections**  
+   Run the provided script to interactively create all required Prefect blocks:
+   ```bash
+   uv run -m src.spotify_etl.prefect_blocks.create_blocks
+   ```
+   This script will:
+   - Prompt for your Spotify API credentials and create the `spotipy` block.
+   - Use Spotify OAuth with the credentials in the `spotipy` block to create `spotify-access-token` block.
+   - Prompt for PostgreSQL connection details to create the `spotify-postgresql` block.
 
-3. Run the flow
+   > **Tip:** If you use Prefect Cloud or a self-hosted server, you can also create these blocks via the Prefect UI.
 
+5. **Run the ETL Flow**  
+   Once the blocks are created and Prefect is running, you can execute the ETL and analytics flows.
+   ```bash
+   uv run -m src.spotify_etl.flow
+   uv run -m src.analytics.flow
+   ```
+   > **Tip:** For a more elaborate Prefect setup deploy the flows to your prefect instance (e.g. `prefect deploy` with the `prefect.yaml`) and set an automation to start the analytics flow after completing the ETL flow (see [PrefectDocs | Automations](https://docs.prefect.io/v3/concepts/automations)).
+---
 
-## Notes
-- The project replaces Airflow with Prefect for more flexible orchestration and simpler local development.
-- Database schema remains unchanged.
-- Tokens are cached locally and automatically refreshed by the flow when expired.
+**Required Prefect Blocks:**
+- `spotipy` (Secret, JSON): Spotify API credentials
+- `spotify-access-token` (Secret): Spotify OAuth token
+- `spotify-postgresql` (SQLAlchemy Connector): PostgreSQL connection
+
+For more details on Prefect blocks, see the [Prefect documentation](https://docs.prefect.io/v3/concepts/blocks#blocks).
