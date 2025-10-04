@@ -33,5 +33,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
 
 # Use Uvicorn as the entrypoint
-# Replace `main:app` with your actual module and app variable if different
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

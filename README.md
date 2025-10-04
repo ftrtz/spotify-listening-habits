@@ -72,3 +72,35 @@ To get started, follow these steps in order:
 - `spotify-postgresql` (SQLAlchemy Connector): PostgreSQL connection
 
 For more details on Prefect blocks, see the [Prefect documentation](https://docs.prefect.io/v3/concepts/blocks#blocks).
+
+
+## Spotify Analytics API
+
+This project includes a FastAPI-based analytics API to query your Spotify listening statistics.
+
+> **Notes:** 
+>- The API is a work in progress and currently exposes only the `/top-artist` endpoint.
+>- See `src/api/main.py` for implementation details and to extend the API.
+
+### How to Start
+
+1. **Set Environment Variables**
+
+   The API requires the following environment variable:
+   - `DATABASE_URL`: The PostgreSQL connection string, e.g.  
+     `postgresql+psycopg2://user:password@host:port/database`
+
+   You can define this in a `.env` file or export it in your shell before starting the service.
+
+2. **Start the API with Docker Compose**
+
+   From the project root, run:
+   ```bash
+   docker compose up
+   ```
+   This will build the image and start the API server. Check the swagger UI on [http://localhost:8000/docs](http://localhost:8000/docs) (or the port set in the `PORT` environment variable).
+
+### Available Endpoints
+
+- `GET /top-artist?year=YYYY&month=MM`  
+  Returns the most listened artist for a given year and month.
