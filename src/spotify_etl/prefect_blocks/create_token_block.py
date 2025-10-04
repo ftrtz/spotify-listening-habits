@@ -3,6 +3,16 @@ from spotipy.oauth2 import SpotifyOAuth
 from prefect.blocks.system import Secret
 
 def create_token_block(token_block_name: str = "spotify-access-token", spotipy_block_name: str = "spotipy"):
+    """
+    Interactively create or update a Prefect Secret block for the Spotify OAuth access token.
+
+    Loads Spotipy credentials from the specified Prefect Secret block, performs OAuth authentication,
+    and stores the resulting token in a new or existing Prefect Secret block.
+
+    Args:
+        token_block_name (str): The name of the Prefect Secret block to create or update for the token (default: "spotify-access-token").
+        spotipy_block_name (str): The name of the Prefect Secret block containing Spotipy credentials (default: "spotipy").
+    """
     # Check if block exists
     try:
         Secret.load(token_block_name)

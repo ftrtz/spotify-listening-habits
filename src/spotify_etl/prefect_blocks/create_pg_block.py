@@ -3,6 +3,16 @@ import getpass
 
 
 def create_pg_block(block_name: str = "spotify-postgresql"):
+    """
+    Interactively create or update a Prefect SqlAlchemyConnector block for PostgreSQL.
+
+    Prompts the user for PostgreSQL connection details (host, port, database, user, password).
+    If a block with the given name exists, asks for confirmation before overwriting.
+    Stores the connection string in the Prefect block store.
+
+    Args:
+        block_name (str): The name of the Prefect SqlAlchemyConnector block to create or update (default: "spotify-postgresql").
+    """
     # Check if block exists
     try:
         SqlAlchemyConnector.load(block_name)

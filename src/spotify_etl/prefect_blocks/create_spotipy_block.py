@@ -2,6 +2,16 @@ from prefect.blocks.system import Secret
 import getpass
 
 def create_spotipy_block(block_name: str = "spotipy"):
+    """
+    Interactively create or update a Prefect Secret block for Spotipy credentials.
+
+    Prompts the user for Spotify Developer credentials (Client ID, Client Secret, Redirect URI).
+    If a block with the given name exists, asks for confirmation before overwriting.
+    Stores the credentials as a JSON object in the Prefect block store.
+
+    Args:
+        block_name (str): The name of the Prefect Secret block to create or update (default: "spotipy").
+    """
     # Check if block exists
     try:
         Secret.load(block_name)
